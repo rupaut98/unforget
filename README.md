@@ -72,6 +72,12 @@ unforget digest --transcript path.jsonl --json
 6. **Render** markdown, empty sections omitted, hard-capped at 9,500 characters (oldest items
    trimmed first).
 
+One asymmetry: Claude Code flushes the new boundary (and summary) to disk only *after*
+SessionStart hooks run. So the hook path (`inject`) windows from the last *flushed* boundary to
+end-of-file — the exact window that was just compacted — with the same extraction and no summary
+to dedupe against yet. The boundary-diff steps above are what `unforget digest` sees after the
+fact.
+
 ## Privacy
 
 `unforget` reads message content because reconstructing working state *is* the product — but it

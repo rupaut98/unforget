@@ -17,7 +17,8 @@ Commands:
 Keep all four green.
 
 Modules: cli.ts (dispatch: inject default, digest, init), locate.ts (resolve transcript),
-digest.ts (boundary diff, extraction, summary-dedupe, render; the TOOL display name lives here),
+digest.ts (boundary diff, hook-time tail window, extraction, summary-dedupe, render; the TOOL
+display name lives here),
 init.ts (settings.json hook writer: symlink-safe, backup, confirm-first),
 parse.ts (tolerant JSONL reading).
 
