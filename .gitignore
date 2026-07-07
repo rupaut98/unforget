@@ -17,3 +17,4 @@ npm-debug.log*
 # editor
 .vscode/
 .idea/
+bench/baseline-*.txt
