@@ -108,8 +108,9 @@ function cmdHit(set: Set<string>, sig: string): boolean {
   return false;
 }
 
-/** True when unforget's digest was actually injected at this boundary (hook_success record). */
-function digestInjected(records: Rec[], boundaryIdx: number): boolean {
+/** True when a FRESH digest was live-injected here: its footer count must match this boundary's
+ * own window — a stale injection (hook ran pre-boundary-flush) carries the previous window's. */
+function digestInjected(records: Rec[], boundaryIdx: number, okCounts: number[]): boolean {
   for (let i = boundaryIdx + 1; i < Math.min(boundaryIdx + 20, records.length); i++) {
     const a = records[i]?.attachment;
     if (
@@ -117,7 +118,11 @@ function digestInjected(records: Rec[], boundaryIdx: number): boolean {
       typeof a.content === "string" &&
       a.content.startsWith("## Working state restored")
     ) {
-      return true;
+      const m = /from (\d+) dropped messages/.exec(a.content);
+      if (!m) return false;
+      const n = Number(m[1]);
+      // slack: a few housekeeping records straddle the hook-time EOF inside the batch flush.
+      return okCounts.some((k) => Math.abs(k - n) <= 8);
     }
   }
   return false;
@@ -258,7 +263,18 @@ function main(): void {
       const window = records.slice(idx + 1, end);
       const nthFromLast = idxs.length - pos;
       const s = scoreBoundary(records, nthFromLast, window);
-      rows.push({ name, boundary: pos + 1, injected: digestInjected(records, idx), ...s });
+      // fresh-injection counts: hook-time tail size, or the boundary diff (future flush order).
+      const prevIdx = idxs[pos - 1] ?? -1;
+      let tailCount = 0;
+      for (let i = prevIdx + 1; i < idx; i++) {
+        if (!records[i]?.isMeta && !records[i]?.isSidechain) tailCount++;
+      }
+      rows.push({
+        name,
+        boundary: pos + 1,
+        injected: digestInjected(records, idx, [tailCount, s.dropped]),
+        ...s,
+      });
     }
   }
 
