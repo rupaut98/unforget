@@ -55,13 +55,15 @@ unforget digest --transcript path.jsonl --json
    before it were already summarized once and re-surfacing them is noise, not lost state.)
 4. **Extract** a deterministic digest from the dropped records only:
    - **Active task** — the most recent substantial user ask. Chat filler ("full path", "ok
-     continue"), interruption markers, cross-session notifications, and pasted terminal output
-     are filtered out first; validated against real compaction boundaries.
+     continue"), interruption markers, cross-session notifications, pasted terminal output,
+     and pasted status reports are filtered out first; validated against real compaction
+     boundaries.
    - **In-flight edits** — files touched by `Edit`/`Write`, with edit counts.
-   - **Commands & outcomes** — `Bash` commands paired to their results; failures and the test
-     result are shown in full, successful commands collapse to the newest few plus a count.
-   - **Dead-ends** — commands that failed 2+ times with the same prefix, and files that were
-     abandoned right after a failure.
+   - **Commands & outcomes** — `Bash` command failures and the latest test result. Successful
+     commands stay in `digest --json` but are not injected: on real boundaries they were 89% of
+     items and almost never useful.
+   - **Dead-ends** — commands that failed 2+ times with the same prefix, and files whose edits
+     were followed by a failure and a switch to another file (possibly unfinished).
    - **Constraints** — "don't / never / must not / always …" sentences from your messages.
    - **Next step** — the last thing the assistant said it would do.
 5. **Dedupe** against the built-in compact summary: anything the summary already carries is
