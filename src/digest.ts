@@ -244,11 +244,10 @@ export function extract(dropped: Rec[]): Digest {
     const reason = g.lastError ? ` (reason: ${trunc(g.lastError, 120)})` : "";
     deadEnds.push(`tried \`${trunc(g.sample, 60)}\` — failed ${g.count}x${reason}`);
   }
-  // ponytail: naive abandonment check — edit A, then a failure, then a different file B that A never
-  // returns to. Catches "gave up on that file". Upgrade to real dependency tracking if it misfires.
+  // naive: edit A, a failure, then a switch away; phrased descriptively, not "abandoned".
   const abandoned = detectAbandoned(timeline);
   for (const a of abandoned) {
-    const line = `abandoned edits to \`${a}\` after failures, moved on`;
+    const line = `edited \`${a}\`, then a command failed, then switched files — possibly unfinished`;
     if (deadEnds.length < 6) deadEnds.push(line);
   }
 
