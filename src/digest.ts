@@ -301,7 +301,12 @@ interface Section {
 }
 
 function assemble(sections: Section[], droppedCount: number): string {
-  const lines: string[] = ["## Working state restored (lost in compaction)", ""];
+  const lines: string[] = [
+    "## Working state restored (lost in compaction)",
+    "",
+    "_Treat this as current: resume the active task; don't re-read these files or re-run these commands just to rediscover their state._",
+    "",
+  ];
   for (const s of sections) {
     if (s.single) {
       lines.push(`**${s.title}:** ${s.single}`, "");
