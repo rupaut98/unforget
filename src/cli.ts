@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { readSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { digestPath, isEmpty, render, TOOL } from "./digest.js";
+import { digestInject, digestPath, isEmpty, render, TOOL } from "./digest.js";
 import { applyInit, hookEntry, settingsPath } from "./init.js";
 import { locate } from "./locate.js";
+import { readRecords } from "./parse.js";
 
 declare const __VERSION__: string;
 const VERSION = typeof __VERSION__ !== "undefined" ? __VERSION__ : "dev";
@@ -102,7 +103,7 @@ function main(): void {
     // Silent hook: any failure or missing data ends as a silent exit 0.
     try {
       if (!path) return;
-      const d = digestPath(path, nth);
+      const d = digestInject(readRecords(path));
       if (!d || isEmpty(d)) return;
       process.stdout.write(`${render(d)}\n`);
     } catch {

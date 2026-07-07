@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import {
   type Digest,
   digestFrom,
+  digestInject,
   excludeCovered,
   extract,
   isEmpty,
@@ -346,6 +347,35 @@ describe("render", () => {
     expect(out.length).toBeLessThanOrEqual(9_500);
     expect(out).not.toContain("module-number-0-");
     expect(out).toContain("module-number-3999-");
+  });
+});
+
+// the new boundary is not yet on disk at hook time (hook-contract.md "Flush order").
+describe("digestInject (hook-time tail window)", () => {
+  const boundary = {
+    type: "system",
+    subtype: "compact_boundary",
+    uuid: "b1",
+    compactMetadata: { preservedMessages: { allUuids: [] } },
+  };
+  const oldAsk = "Set up the repo skeleton and make the very first commit for me please.";
+  const newAsk = "Now switch the digest to the tail window and add a regression test for it.";
+
+  test("digests the un-boundaried tail, not the previous boundary's window", () => {
+    const d = digestInject([user(oldAsk), boundary, user(newAsk)])!;
+    expect(d.activeTask).toBe(newAsk);
+    expect(d.droppedCount).toBe(1);
+  });
+
+  test("no boundary yet (first compaction) digests the whole file", () => {
+    const d = digestInject([user(oldAsk), user(newAsk)])!;
+    expect(d.activeTask).toBe(newAsk);
+    expect(d.droppedCount).toBe(2);
+  });
+
+  test("empty tail (boundary flushed before hooks) falls back to the boundary diff", () => {
+    const d = digestInject([user(newAsk), boundary])!;
+    expect(d.activeTask).toBe(newAsk);
   });
 });
 

@@ -75,6 +75,15 @@ export function splitAtBoundary(
   return { dropped, droppedCount: dropped.length, summary };
 }
 
+/** Records after the last on-disk boundary (whole file if none) — the just-compacted window at
+ * hook time, since the new boundary is flushed only AFTER hooks run (hook-contract.md). */
+export function tailAfterLastBoundary(records: Rec[]): Rec[] {
+  const last = records.findLastIndex(
+    (r) => r?.type === "system" && r?.subtype === "compact_boundary",
+  );
+  return records.slice(last + 1).filter((r) => !r?.isMeta && !r?.isSidechain);
+}
+
 function trunc(s: string, n: number): string {
   const clean = s.replace(/\s+/g, " ").trim();
   return clean.length <= n ? clean : `${clean.slice(0, n - 1)}...`;
@@ -397,4 +406,11 @@ export function digestFrom(records: Rec[], nthFromLast = 1): Digest | null {
 
 export function digestPath(path: string, nthFromLast = 1): Digest | null {
   return digestFrom(readRecords(path), nthFromLast);
+}
+
+/** inject-mode digest of the just-compacted tail — no preserved filter or summary dedupe, neither
+ * is on disk at hook time. An empty tail (boundary flushed first) falls back to the boundary diff. */
+export function digestInject(records: Rec[]): Digest | null {
+  const d = extract(tailAfterLastBoundary(records));
+  return isEmpty(d) ? digestFrom(records, 1) : d;
 }
