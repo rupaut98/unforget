@@ -29,10 +29,22 @@ Append-only across compaction. The boundary record is `type:"system"`,
 set) plus `preTokens`/`postTokens`/`cumulativeDroppedTokens`. The summary follows as a
 `type:"user"` record with `isCompactSummary:true`.
 
+## Flush order (the load-bearing fact)
+
+The entire post-compaction block — boundary record, preserved messages, summary, and the
+hooks' own `hook_success` records — is written AFTER `SessionStart:compact` hooks run.
+Measured 2026-07-07 on 2.1.201, 4/4 live injections: the boundary sits before the hook
+records in file order yet is timestamped 9–19ms later, and truncating the file to its
+hook-time state reproduces each injected digest byte-for-byte. So at hook time the newest
+on-disk boundary is the *previous* compaction, and the just-compacted turns are the
+unterminated tail after it. A hook must window from the last on-disk boundary to EOF —
+`preservedMessages` and the current summary do not exist on disk yet.
+
 ## Upstream bugs to design around
 
 - Plugin-packaged SessionStart hooks get their output dropped (anthropics/claude-code#16538):
   install at settings level, never as a plugin.
 - Microcompact fires no hooks at all.
 - PreCompact reliability has a history (#13572): nothing load-bearing may depend on PreCompact
-  firing — the on-disk boundary diff is the source of truth.
+  firing — the on-disk transcript is the source of truth (at hook time that means the tail
+  after the last flushed boundary; see flush order above).
