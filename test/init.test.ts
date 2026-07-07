@@ -21,7 +21,7 @@ describe("hook merge logic", () => {
     expect(next.model).toBe("opus");
     expect(next.hooks!.SessionStart).toHaveLength(2);
     expect(isInstalled(next)).toBe(true);
-    expect(isInstalled(s)).toBe(false); // input not mutated
+    expect(isInstalled(s)).toBe(false);
   });
 
   test("idempotent: already installed → null, incl. a hand-written bare command", () => {
@@ -59,7 +59,6 @@ describe("applyInit writes through symlinks", () => {
     const written = JSON.parse(readFileSync(real, "utf8"));
     expect(written.model).toBe("opus");
     expect(isInstalled(written)).toBe(true);
-    // the link still resolves to the same content (not replaced by a plain file)
     expect(JSON.parse(readFileSync(link, "utf8"))).toEqual(written);
     expect(JSON.parse(readFileSync(`${real}.unforget.bak`, "utf8"))).toEqual({ model: "opus" });
   });
@@ -69,7 +68,7 @@ describe("applyInit writes through symlinks", () => {
     const p = join(dir, "settings.json");
     writeFileSync(p, "{not json");
     applyInit(p, false, () => true);
-    expect(readFileSync(p, "utf8")).toBe("{not json"); // untouched
+    expect(readFileSync(p, "utf8")).toBe("{not json");
     process.exitCode = 0;
 
     writeFileSync(p, "{}");

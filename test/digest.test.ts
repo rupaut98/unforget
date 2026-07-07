@@ -14,14 +14,12 @@ import { readRecords } from "../src/parse.js";
 const FIXTURE = fileURLToPath(new URL("./fixtures/session.jsonl", import.meta.url));
 const records = readRecords(FIXTURE);
 
-// A minimal user record; uuid derived from the content so it stays unique in a test.
 const user = (content: string) => ({
   type: "user",
   uuid: content.slice(0, 8),
   message: { role: "user", content },
 });
 
-// A digest with everything empty; pass overrides for the fields a test cares about.
 const mkDigest = (over: Partial<Digest> = {}): Digest => ({
   activeTask: null,
   edits: [],
@@ -44,8 +42,8 @@ describe("splitAtBoundary", () => {
   test("drops records not in the survived set; keeps the survivor out", () => {
     const split = splitAtBoundary(records)!;
     const uuids = split.dropped.map((r) => r.uuid);
-    expect(uuids).toContain("u001"); // early ask was dropped
-    expect(uuids).not.toContain("u016"); // preserved tail survived
+    expect(uuids).toContain("u001");
+    expect(uuids).not.toContain("u016");
   });
 
   test("skips isMeta and isSidechain records", () => {
@@ -295,8 +293,8 @@ describe("excludeCovered (summary dedupe)", () => {
     expect(out.commands).toEqual([]);
     expect(out.deadEnds).toEqual([]);
     expect(out.constraints).toEqual([]);
-    expect(out.activeTask).toBe(d.activeTask); // summary never restates it verbatim here
-    expect(out.nextStep).toBe(d.nextStep); // under the needle minimum, never matched
+    expect(out.activeTask).toBe(d.activeTask);
+    expect(out.nextStep).toBe(d.nextStep);
   });
 
   test("empty summary is a no-op", () => {
@@ -304,7 +302,6 @@ describe("excludeCovered (summary dedupe)", () => {
   });
 
   test("activeTask survives even when the summary carries it verbatim", () => {
-    // The orienting line is exempt from dedupe: nulling it proved self-defeating on real data.
     const out = excludeCovered(d, `The user asked: ${d.activeTask}`);
     expect(out.activeTask).toBe(d.activeTask);
   });
@@ -347,7 +344,6 @@ describe("render", () => {
     }));
     const out = render(mkDigest({ activeTask: "big", edits: many, droppedCount: 4000 }));
     expect(out.length).toBeLessThanOrEqual(9_500);
-    // oldest trimmed first → an early edit drops out, a late one survives
     expect(out).not.toContain("module-number-0-");
     expect(out).toContain("module-number-3999-");
   });
@@ -364,7 +360,6 @@ describe("isEmpty / silent no-op", () => {
   });
 
   test("a boundary with no extractable state yields an empty digest", () => {
-    // only a boundary + a survivor, nothing dropped with content
     const minimal = [
       { type: "user", uuid: "a", message: { role: "user", content: "hi" } },
       {

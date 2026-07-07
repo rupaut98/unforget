@@ -32,7 +32,7 @@ Options
 
 Reads ~/.claude (or $CLAUDE_CONFIG_DIR) locally. Never sends data anywhere.`;
 
-/** Blocking y/N prompt; anything unreadable (piped/closed stdin) counts as "no". */
+/** Blocking y/N prompt; unreadable stdin counts as "no". */
 function askYesNo(question: string): boolean {
   process.stdout.write(question);
   try {
@@ -68,8 +68,7 @@ function main(): void {
   try {
     parsed = parseArgs({ allowPositionals: true, options: OPTIONS });
   } catch (e) {
-    // Malformed args on the hook path (inject is the default command) must stay silent —
-    // a typo in a hand-edited hook command must never make session start noisy.
+    // Silent hook: malformed args on the default inject path must never make session start noisy.
     const cmd = process.argv.slice(2).find((a) => !a.startsWith("-"));
     if (cmd === undefined || cmd === "inject") return;
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);
@@ -100,14 +99,14 @@ function main(): void {
   const path = locate({ transcript: v.transcript, session: v.session });
 
   if (cmd === "inject") {
-    // A hook must never be noisy: any failure or missing data ends as a silent exit 0.
+    // Silent hook: any failure or missing data ends as a silent exit 0.
     try {
       if (!path) return;
       const d = digestPath(path, nth);
       if (!d || isEmpty(d)) return;
       process.stdout.write(`${render(d)}\n`);
     } catch {
-      // swallow — never break a session start
+      return;
     }
     return;
   }

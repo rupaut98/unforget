@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 
-// Transcript lines are untyped JSON written by Claude Code; we validate fields as we read them.
-// biome-ignore lint/suspicious/noExplicitAny: transcript records are free-form JSON
+// biome-ignore lint/suspicious/noExplicitAny: transcript records are free-form JSON, validated on read
 export type Rec = any;
 
 /** A tool_use / tool_result / text content block inside a message. */
@@ -22,7 +21,7 @@ export function readRecords(path: string): Rec[] {
     try {
       out.push(JSON.parse(line));
     } catch {
-      // tolerant: a truncated/half-written last line never crashes the reader
+      // tolerant: a truncated/half-written line is skipped, never crashes (invariant 4)
     }
   }
   return out;

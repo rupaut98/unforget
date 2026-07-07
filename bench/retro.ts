@@ -1,9 +1,6 @@
-// Retro-scorer: replays every real compact boundary in the local transcript corpus, asking
-// "did the digest carry the state the resumed session actually went back to rediscover?".
-// Digest is built from the DROPPED set; the ORACLE is the post-boundary window. A rediscovery
-// event = re-reading a pre-compaction-edited file or re-running a pre-compaction-failed command.
-// NET AVOIDED% (headline) scores only events the built-in summary did NOT carry; raw AVOIDED%
-// is depressed by design — excludeCovered prunes summary-covered items on purpose.
+// Retro-scorer: replays real compact boundaries, asking if the digest carried the state the
+// resumed session went back to rediscover (re-read an edited file / re-ran a failed command).
+// NET AVOIDED% = share of rediscoveries the built-in summary did NOT carry that the digest did.
 // Run: bun bench/retro.ts   (zero deps, read-only, network-free)
 
 import { readdirSync } from "node:fs";
@@ -15,8 +12,7 @@ import { blocks, type Rec, readRecords, resultText } from "../src/parse.js";
 // Measured on the local corpus 2026-07-06: NET 95.8%; FLOOR sits below it to guard regressions.
 const FLOOR = 85;
 
-// Rejection markers copied from digest.ts: an is_error result that "never ran" (declined / blocked)
-// is not a real failure, so it must not count as a PRE-failed command.
+// Rejected/blocked is_error results "never ran" — not a real PRE-failed command.
 const REJECTED_RE =
   /tool use was rejected|doesn'?t want to proceed|permission to use|hook (denied|error)|requested permissions/i;
 // Scratch/~/.claude paths the digest never carries, so the oracle must not score them.
@@ -37,11 +33,11 @@ function cmdSig(cmd: string): string {
     .slice(0, 60);
 }
 
-const CMD_KEY = 40; // commands match on their first 40 normalized chars (re-runs, minor arg tweaks)
+const CMD_KEY = 40; // commands match on their first 40 normalized chars
 
 interface Pre {
-  editedFiles: Set<string>; // fileKey of Edit/Write targets in the dropped set
-  failedCmds: Set<string>; // cmdSig of commands whose paired result was is_error (not a rejection)
+  editedFiles: Set<string>;
+  failedCmds: Set<string>;
 }
 
 /** PRE state from the dropped set: files that were edited, commands that genuinely failed. */
@@ -75,8 +71,8 @@ function preState(dropped: Rec[]): Pre {
 }
 
 interface Oracle {
-  files: Set<string>; // fileKey of every post Read/Edit/Write target
-  commands: Set<string>; // cmdSig of every post Bash command
+  files: Set<string>;
+  commands: Set<string>;
 }
 
 /** ORACLE from the post-boundary window: what the resumed session actually touched. */
@@ -106,7 +102,7 @@ function oracleState(window: Rec[]): Oracle {
 
 /** True when a normalized signature set contains a first-CMD_KEY-chars match for `sig`. */
 function cmdHit(set: Set<string>, sig: string): boolean {
-  if (sig.length < 8) return false; // too short to be a meaningful signature
+  if (sig.length < 8) return false;
   const key = sig.slice(0, CMD_KEY);
   for (const s of set) if (s.slice(0, CMD_KEY) === key) return true;
   return false;
@@ -129,12 +125,12 @@ function digestInjected(records: Rec[], boundaryIdx: number): boolean {
 
 interface Row {
   name: string;
-  boundary: number; // 1-based index within the transcript
+  boundary: number;
   injected: boolean; // digest was live-injected at this boundary (post-install data)
   dropped: number;
   rediscovery: number;
   avoided: number;
-  lost: number; // rediscovery events the compact summary did NOT carry — unforget's actual promise
+  lost: number; // rediscovery events the compact summary did NOT carry
   avoidedNet: number; // of those, how many the digest carried
   precision: number | null; // null when the digest had no scorable items
 }
@@ -155,8 +151,7 @@ function scoreBoundary(
   const renderedNorm = render(digest).replace(/\s+/g, " ").toLowerCase();
   const summaryNorm = split.summary.replace(/\s+/g, " ").toLowerCase();
 
-  // NET counts only events the summary did not carry: a summary-kept item was never "lost",
-  // so re-injecting it is not unforget's job.
+  // NET counts only events the summary did not carry — a summary-kept item was never "lost".
   let rediscovery = 0;
   let avoided = 0;
   let lost = 0;
@@ -192,8 +187,7 @@ function scoreBoundary(
   }
   if (digest.activeTask) {
     items++;
-    // A task line "lands" if the resumed session touched a file/command the task names — approximate
-    // by asking whether any oracle file-stem or command-token appears in the (normalized) task text.
+    // Task "lands" if any oracle file-stem or command-token appears in the task text.
     const task = digest.activeTask.toLowerCase();
     const names = [...oracle.files].map(
       (f) =>
@@ -260,7 +254,7 @@ function main(): void {
     const idxs = boundaryIdxs(records);
     for (let pos = 0; pos < idxs.length; pos++) {
       const idx = idxs[pos] ?? 0;
-      const end = idxs[pos + 1] ?? records.length; // next boundary or EOF
+      const end = idxs[pos + 1] ?? records.length;
       const window = records.slice(idx + 1, end);
       const nthFromLast = idxs.length - pos;
       const s = scoreBoundary(records, nthFromLast, window);

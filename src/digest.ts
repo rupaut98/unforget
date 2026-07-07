@@ -1,24 +1,24 @@
 import { blocks, messageText, type Rec, readRecords, resultText } from "./parse.js";
 
-/** Display name of the tool. Kept in ONE place so the rename agent touches a single line. */
+/** Tool display name; single source of truth for the rename agent. */
 export const TOOL = "unforget";
 
 const CHAR_CAP = 9_500;
-// Require an actual test *runner*: bare "test"/"spec" match paths like `src/test/x` (false positive).
+// Require an actual test runner: bare "test"/"spec" also match paths like `src/test/x`.
 const TEST_RE =
   /\b(pytest|jest|vitest|mocha|rspec|phpunit|ctest|(bun|go|cargo|npm|pnpm|yarn|deno)\s+(run\s+)?test|npm\s+t\b|make\s+test|(python3?|node)(\s+\S+)?\s+\S*\btests?\b)/i;
 const CONSTRAINT_RE = /(don'?t|do not|never|must not|avoid|only use|always)\b/i;
-// Low-signal "keep going" nudges — a poor answer for "the active task" if a real ask exists.
+// Low-signal "keep going" nudges — a poor active task if a real ask exists.
 const CONTINUATION_RE =
   /^(continue|go on|go ahead|proceed|keep going|yes|yep|ok(ay)?|sure|next|do it|please continue)\b/i;
-// Below this many chars a message is chat ("open it for me"), not a task statement.
+// Below this many chars a message is chat, not a task statement.
 const SUBSTANTIAL = 60;
-// tool_result is_error text meaning "never ran" (declined/blocked), not "ran and failed".
+// is_error text meaning "never ran" (declined/blocked), not "ran and failed".
 const REJECTED_RE =
   /tool use was rejected|doesn'?t want to proceed|permission to use|hook (denied|error)|requested permissions/i;
 // Scratch/meta locations that are not project work — never "in-flight edits".
 const SCRATCH_RE = /^\/(private\/)?tmp\/|\/\.claude\//;
-// Pure search/list commands, where nonzero exit usually means "no match", not "broken".
+// Search/list commands where nonzero exit usually means "no match", not "broken".
 const SEARCH_RE =
   /^\s*(cd\s+[^;&|]+\s*(;|&&)\s*)?(rtk\s+proxy\s+)?(grep|rg|find|ls|git\s+grep|fd)\b/;
 
@@ -33,11 +33,7 @@ export interface Digest {
   droppedCount: number;
 }
 
-/**
- * Nth compact_boundary from the end (n=1 = last) → the records that compaction dropped.
- * Windowed from the previous boundary on purpose: earlier records were already replaced by an
- * older summary, so re-surfacing them is noise. Null when there is no such boundary.
- */
+/** Records dropped at the nth-from-last compact boundary, windowed from the prior boundary; null if none. */
 export function splitAtBoundary(
   records: Rec[],
   nthFromLast = 1,
@@ -52,7 +48,7 @@ export function splitAtBoundary(
   const pos = boundaryIdxs.length - nthFromLast;
   const idx = boundaryIdxs[pos];
   if (idx === undefined) return null;
-  const start = pos > 0 ? (boundaryIdxs[pos - 1] ?? -1) + 1 : 0; // record after the prior boundary
+  const start = pos > 0 ? (boundaryIdxs[pos - 1] ?? -1) + 1 : 0;
 
   const meta = records[idx]?.compactMetadata?.preservedMessages ?? {};
   const survived = new Set<string>(
@@ -63,13 +59,12 @@ export function splitAtBoundary(
   for (let i = start; i < idx; i++) {
     const r = records[i];
     if (r?.isMeta) continue;
-    if (r?.isSidechain) continue; // v1: subagent side-channel is out of scope
+    if (r?.isSidechain) continue; // subagent side-channel is out of scope
     if (typeof r?.uuid === "string" && survived.has(r.uuid)) continue;
     dropped.push(r);
   }
 
-  // The compact summary follows the boundary as an isCompactSummary user record. Read ONLY
-  // as an exclusion filter, never as a content source (invariant 5).
+  // summary is read as an exclusion filter only, never as a content source (invariant 5).
   let summary = "";
   for (let i = idx + 1; i < Math.min(idx + 5, records.length); i++) {
     if (records[i]?.isCompactSummary === true) {
@@ -100,10 +95,7 @@ function isSubstantiveUser(rec: Rec): boolean {
   return t !== "" && !t.startsWith("<") && !t.startsWith("/");
 }
 
-/**
- * Share of tokens carrying digits, no letters, or code brackets — high for pasted terminal
- * output, low for prose. An error pasted inside prose stays under the bar: that paste IS the task.
- */
+/** Fraction of the first 120 tokens reading as pasted output (digits/brackets/no-letters), not prose. */
 function pasteRatio(text: string): number {
   const words = text.split(/\s+/).filter(Boolean).slice(0, 120);
   if (words.length === 0) return 1;
@@ -118,9 +110,9 @@ function isTaskAsk(text: string): boolean {
   const s = text.trim();
   if (/^\[request interrupted/i.test(s)) return false;
   if (s.includes("<teammate-message")) return false; // cross-session notification, not an ask
-  if (CONTINUATION_RE.test(s) && s.length < SUBSTANTIAL) return false; // "continue working please"
-  if (s.split(/\s+/).length < 5) return false; // "full path", "open it for me"
-  // Columnar output: ≥2 lines with internal 3+-space runs never happens in typed prose.
+  if (CONTINUATION_RE.test(s) && s.length < SUBSTANTIAL) return false;
+  if (s.split(/\s+/).length < 5) return false;
+  // columnar output: 3+-space runs on 2+ lines never occur in typed prose.
   if (s.split("\n").filter((l) => /\S {3,}\S/.test(l)).length >= 2) return false;
   return pasteRatio(s) < 0.3;
 }
@@ -132,25 +124,22 @@ function looksLikeReport(s: string): boolean {
   return /^\s*\*\*[^*]+\*\*:/.test(s);
 }
 
-// Interleaved edit/failure timeline for the abandonment heuristic.
 type Ev = { kind: "edit"; file: string } | { kind: "fail" };
 
 export function extract(dropped: Rec[]): Digest {
-  const asks: string[] = []; // messages passing the real-ask filter, in order
-  let activeTaskFallback: string | null = null; // last user msg even if a "continue" nudge
+  const asks: string[] = [];
+  let activeTaskFallback: string | null = null; // last user msg, even a "continue" nudge
   let nextStep: string | null = null;
 
-  // Edit/Write file_paths in first-seen order, with an edit count.
   const editOrder: string[] = [];
   const editCount = new Map<string, number>();
   const wrote = new Set<string>();
 
-  // Bash command per tool_use id, so a later tool_result can be matched to it.
+  // Bash command by tool_use id, to match a later tool_result.
   const bashById = new Map<string, string>();
   const commands: { command: string; status: "ran" | "failed" }[] = [];
   let test: Digest["test"] = null;
 
-  // Failed-command grouping for dead-ends: normalized prefix → {count, lastError}.
   const failGroups = new Map<string, { count: number; lastError: string; sample: string }>();
 
   const timeline: Ev[] = [];
@@ -164,8 +153,7 @@ export function extract(dropped: Rec[]): Digest {
       activeTaskFallback = text;
       if (isTaskAsk(text)) {
         asks.push(text);
-        // Constraints only from real asks: relayed teammate messages and pasted policy text
-        // are full of "never/don't" sentences that were never the user's instructions.
+        // constraints only from real asks: pasted policy/teammate text is full of stray "never/don't".
         for (const s of sentences(text)) {
           if (!CONSTRAINT_RE.test(s)) continue;
           const c = trunc(s, 120);
@@ -200,15 +188,13 @@ export function extract(dropped: Rec[]): Digest {
       if (b?.type === "tool_result" && typeof b.tool_use_id === "string") {
         const cmd = bashById.get(b.tool_use_id);
         if (cmd === undefined) continue;
-        // Permission denials / user rejections / hook blocks set is_error but the command
-        // never ran — counting them as failures misleads the resumed session.
+        // rejected/blocked commands set is_error but never ran — not failures.
         if (b.is_error === true && REJECTED_RE.test(resultText(b))) continue;
         const err =
           resultText(b)
             .split("\n")
             .find((l) => l.trim() !== "") ?? "";
-        // A search/list with nonzero exit and no real error text is "no match", not a failure
-        // (grep/ls misses were ~38% of failed-command noise on real boundaries).
+        // search/list nonzero exit with no real error text is "no match", not a failure.
         const noMatch =
           SEARCH_RE.test(cmd) && (err === "" || /^exit code \d+\s*$/i.test(err.trim()));
         const failed = b.is_error === true && !noMatch;
@@ -216,7 +202,7 @@ export function extract(dropped: Rec[]): Digest {
         // `-e` inline scripts false-match TEST_RE on the word "test" in their source.
         const testMatch = /\s-e\s/.test(cmd) ? null : TEST_RE.exec(cmd);
         if (testMatch) {
-          // Slice from the matched runner: `cd …; … && bun test x` renders as `bun test x`.
+          // slice from the matched runner so `cd …; bun test x` renders as `bun test x`.
           test = { command: cmd.slice(testMatch.index), status: failed ? "failing" : "passing" };
         }
         if (failed) {
@@ -239,7 +225,7 @@ export function extract(dropped: Rec[]): Digest {
   });
 
   const deadEnds: string[] = [];
-  for (const [, g] of failGroups) {
+  for (const g of failGroups.values()) {
     if (g.count < 2) continue;
     const reason = g.lastError ? ` (reason: ${trunc(g.lastError, 120)})` : "";
     deadEnds.push(`tried \`${trunc(g.sample, 60)}\` — failed ${g.count}x${reason}`);
@@ -276,15 +262,14 @@ function detectAbandoned(timeline: Ev[]): string[] {
   });
   const out: string[] = [];
   for (const [file, idx] of lastEditIdx) {
-    // Tight window: after A's last edit, a failure must occur before any other file is edited,
-    // and the next edit must be a different file — "edited A, it broke, switched away".
+    // after A's last edit: a failure, then a different file edited = switched away.
     let sawFail = false;
     for (let i = idx + 1; i < timeline.length; i++) {
       const e = timeline[i];
       if (e?.kind === "fail") sawFail = true;
       if (e?.kind === "edit" && e.file !== file) {
         if (sawFail && !out.includes(file)) out.push(file);
-        break; // next edit is a different file → decision made
+        break;
       }
       if (e?.kind === "edit" && e.file === file) break; // returned to A → not abandoned
     }
@@ -341,7 +326,7 @@ export function render(d: Digest): string {
   ];
 
   let out = assemble(sections, d.droppedCount);
-  // Trim oldest items from the largest list section until under the cap.
+  // trim oldest items from the largest section until under the cap.
   while (out.length > CHAR_CAP) {
     let biggest: Section | null = null;
     for (const s of sections) {
@@ -362,10 +347,7 @@ function norm(s: string): string {
   return s.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-/**
- * Drop digest items the built-in compact summary already carries. Deliberately cheap normalized
- * substring matching: a paraphrase won't match and the item stays — a few redundant chars, no loss.
- */
+/** Drop digest items the compact summary already carries, via cheap normalized substring match. */
 export function excludeCovered(d: Digest, summaryRaw: string): Digest {
   if (!summaryRaw) return d;
   const summary = norm(summaryRaw);
@@ -385,8 +367,7 @@ export function excludeCovered(d: Digest, summaryRaw: string): Digest {
 
   return {
     ...d,
-    // activeTask is exempt on purpose: nulling the one orienting line because the summary
-    // happens to mention it proved self-defeating on real boundaries (lost on ~half of them).
+    // activeTask is exempt: never null the one orienting line even if the summary mentions it.
     edits: d.edits.filter((e) => !pathCovered(e.path)),
     commands: d.commands.filter((c) => !covered(c.command)),
     deadEnds: d.deadEnds.filter((x) => !deadEndCovered(x)),

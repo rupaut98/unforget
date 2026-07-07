@@ -34,7 +34,7 @@ function newestTranscript(dir: string): string | null {
         best = full;
       }
     } catch {
-      // unreadable entry — skip it
+      // tolerant: skip unreadable entry
     }
   }
   return best;
@@ -46,13 +46,7 @@ export interface LocateOpts {
   cwd?: string;
 }
 
-/**
- * Resolve which transcript to read:
- *   --transcript <path>  → that file
- *   --session <id>       → <projectDir>/<id>.jsonl (for the current project)
- *   otherwise            → the most recent transcript for the current project cwd
- * Returns null when nothing can be found (callers decide whether that is silent).
- */
+/** Resolve the transcript: --transcript, else --session file, else newest for cwd; null if none. */
 export function locate(opts: LocateOpts): string | null {
   if (opts.transcript) return opts.transcript;
   const cwd = opts.cwd ?? process.cwd();

@@ -3,11 +3,8 @@ import { join } from "node:path";
 import { TOOL } from "./digest.js";
 import { configDir } from "./locate.js";
 
-/**
- * Absolute runtime + script path, not a bare "unforget": GUI-launched Claude Code spawns hooks
- * with a minimal PATH that often lacks the npm global bin — a PATH miss is a silently dead hook.
- * Also keeps a repo checkout (bun src/cli.ts) installable for dogfooding.
- */
+/** Absolute runtime + script path, not bare "unforget": GUI-launched hooks get a minimal PATH
+ * that often lacks the npm global bin, and a PATH miss is a silently dead hook. */
 export function hookCommand(): string {
   const script = process.argv[1];
   return script ? `"${process.execPath}" "${script}" inject` : `${TOOL} inject`;
@@ -17,8 +14,7 @@ export function hookEntry() {
   return { matcher: "compact", hooks: [{ type: "command", command: hookCommand() }] };
 }
 
-// Loose shape of settings.json — we only ever touch hooks.SessionStart, everything else is
-// carried through untouched.
+// Loose settings.json shape; we only touch hooks.SessionStart, everything else passes through.
 interface HookEntry {
   matcher?: string;
   hooks?: { command?: string }[];
@@ -28,14 +24,13 @@ export interface Settings {
   [k: string]: unknown;
 }
 
-// Settings are hand-edited; any field can be any shape. Read defensively, never crash.
+// Hand-edited settings: read defensively, never crash.
 function hookList(s: Settings): HookEntry[] {
   const raw = s.hooks?.SessionStart;
   return Array.isArray(raw) ? raw : [];
 }
 
-// Ours = any command mentioning the tool and "inject" — matches both the absolute-path form
-// and a hand-written bare `unforget inject`.
+// Ours = any command mentioning the tool and "inject" (absolute-path or bare `unforget inject`).
 function ours(e: HookEntry): boolean {
   return (
     Array.isArray(e?.hooks) &&
@@ -73,11 +68,8 @@ export function settingsPath(): string {
   return join(configDir(), "settings.json");
 }
 
-/**
- * Install/remove, writing through symlinks (settings.json is often a symlink into a dotfiles
- * repo; replacing the link would silently detach it). Leaves a .bak beside the real file.
- * Unparseable settings abort: never clobber a file we couldn't read.
- */
+/** Install/remove, writing through symlinks: settings.json is often a symlink into a dotfiles
+ * repo, and replacing the link instead of its target would silently detach it. Leaves a .bak. */
 export function applyInit(path: string, remove: boolean, confirm: (msg: string) => boolean): void {
   const real = existsSync(path) ? realpathSync(path) : path;
   let current: Settings = {};
@@ -91,8 +83,7 @@ export function applyInit(path: string, remove: boolean, confirm: (msg: string) 
     }
   }
 
-  // Refuse to restructure a hand-edited file with an unexpected shape — same policy as
-  // unparseable JSON: tell the user, write nothing.
+  // Unexpected hooks shape: refuse, tell the user, write nothing.
   const h = current.hooks;
   const badHooks = h !== undefined && (typeof h !== "object" || h === null || Array.isArray(h));
   const ss = badHooks ? undefined : h?.SessionStart;
