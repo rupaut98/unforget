@@ -126,6 +126,13 @@ function isTaskAsk(text: string): boolean {
   return pasteRatio(s) < 0.3;
 }
 
+// pasted status recap (numbered/bulleted lines, header, or leading **bold:** label), demoted vs a real ask.
+function looksLikeReport(s: string): boolean {
+  if (s.split("\n").filter((l) => /^\s*(\d+[.)]|[-*])\s/.test(l)).length >= 2) return true;
+  if (/^#{1,6}\s/m.test(s)) return true;
+  return /^\s*\*\*[^*]+\*\*:/.test(s);
+}
+
 // Interleaved edit/failure timeline for the abandonment heuristic.
 type Ev = { kind: "edit"; file: string } | { kind: "fail" };
 
@@ -246,10 +253,11 @@ export function extract(dropped: Rec[]): Digest {
     if (deadEnds.length < 6) deadEnds.push(line);
   }
 
-  // Most recent substantial ask wins; a window of only chat-length asks falls back to the
-  // longest one, then to the last user message of any kind.
-  let activeTask = asks.findLast((a) => a.trim().length >= SUBSTANTIAL) ?? null;
-  activeTask ??= asks.reduce<string | null>((a, b) => (a && a.length >= b.length ? a : b), null);
+  // demote recaps, then most-recent substantial ask; fallback longest ask, then any last user msg.
+  const nonReport = asks.filter((a) => !looksLikeReport(a));
+  const pool = nonReport.length > 0 ? nonReport : asks;
+  let activeTask = pool.findLast((a) => a.trim().length >= SUBSTANTIAL) ?? null;
+  activeTask ??= pool.reduce<string | null>((a, b) => (a && a.length >= b.length ? a : b), null);
 
   return {
     activeTask: activeTask ?? activeTaskFallback,

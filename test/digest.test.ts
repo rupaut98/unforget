@@ -136,6 +136,18 @@ describe("active task heuristic", () => {
     expect(d.activeTask).toStartWith("Add spouse info");
   });
 
+  test("a pasted status report loses to the real instruction, in either order", () => {
+    const report = [
+      "**Status:** the migration is done and all checks are green today.",
+      "1. The parser was fixed and the tests pass now",
+      "2. The digest dedupes correctly against the summary",
+      "3. Next we should look at the installer edge cases",
+    ].join("\n");
+    const ask = "Deepthink about the implementation and tell me what improvements we can make.";
+    expect(extract([user(ask), user(report)]).activeTask).toBe(ask);
+    expect(extract([user(report), user(ask)]).activeTask).toBe(ask);
+  });
+
   test("recent substantial ask beats an older longer one", () => {
     const d = extract([
       user("Build the entire ingestion pipeline end to end with retries, caching, and reporting."),
