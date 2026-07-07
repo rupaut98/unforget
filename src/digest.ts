@@ -13,7 +13,6 @@ const CONTINUATION_RE =
   /^(continue|go on|go ahead|proceed|keep going|yes|yep|ok(ay)?|sure|next|do it|please continue)\b/i;
 // Below this many chars a message is chat ("open it for me"), not a task statement.
 const SUBSTANTIAL = 60;
-const RAN_SHOWN = 6; // successful commands are mostly noise for re-injection; keep only the newest
 // tool_result is_error text meaning "never ran" (declined/blocked), not "ran and failed".
 const REJECTED_RE =
   /tool use was rejected|doesn'?t want to proceed|permission to use|hook (denied|error)|requested permissions/i;
@@ -320,14 +319,11 @@ function assemble(sections: Section[], droppedCount: number): string {
   return lines.join("\n");
 }
 
-/** Every failure + the test outcome; successful commands collapse to the newest few + a count. */
+/** Failures plus the test outcome; successful commands stay in the JSON but out of the render. */
 function commandItems(d: Digest): string[] {
   const failed = d.commands.filter((c) => c.status === "failed");
-  const ran = d.commands.filter((c) => c.status === "ran");
   const items = failed.map((c) => `failed \`${trunc(c.command, 100)}\``);
   if (d.test) items.push(`test: \`${trunc(d.test.command, 80)}\` — ${d.test.status}`);
-  for (const c of ran.slice(-RAN_SHOWN)) items.push(`ran \`${trunc(c.command, 100)}\``);
-  if (ran.length > RAN_SHOWN) items.push(`(+${ran.length - RAN_SHOWN} more commands ran ok)`);
   return items;
 }
 

@@ -324,6 +324,22 @@ describe("render", () => {
     expect(out).not.toContain("Dead-ends");
   });
 
+  test("successful commands are not rendered; failures and the test line are", () => {
+    const out = render(
+      mkDigest({
+        commands: [
+          { command: "bun run lint", status: "ran" },
+          { command: "cargo build", status: "failed" },
+        ],
+        test: { command: "bun test", status: "passing" },
+        droppedCount: 2,
+      }),
+    );
+    expect(out).toContain("failed `cargo build`");
+    expect(out).toContain("test: `bun test` — passing");
+    expect(out).not.toContain("bun run lint");
+  });
+
   test("enforces the 9,500 char cap by trimming oldest items", () => {
     const many = Array.from({ length: 4000 }, (_, i) => ({
       path: `src/module-number-${i}-with-a-fairly-long-path-to-eat-characters.ts`,
