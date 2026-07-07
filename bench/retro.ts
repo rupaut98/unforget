@@ -12,15 +12,15 @@ import { join } from "node:path";
 import { digestFrom, render, splitAtBoundary } from "../src/digest.js";
 import { blocks, type Rec, readRecords, resultText } from "../src/parse.js";
 
-// Measured on the local corpus, 2026-07-05: NET AVOIDED% 75.9% (22/29 summary-lost events,
-// 56 boundaries, 25 files); raw AVOIDED% 30.2%. FLOOR sits well below the measurement so it
-// guards heuristic regressions without corpus-drift noise.
-const FLOOR = 60;
+// Measured on the local corpus 2026-07-06: NET 95.8%; FLOOR sits below it to guard regressions.
+const FLOOR = 85;
 
 // Rejection markers copied from digest.ts: an is_error result that "never ran" (declined / blocked)
 // is not a real failure, so it must not count as a PRE-failed command.
 const REJECTED_RE =
   /tool use was rejected|doesn'?t want to proceed|permission to use|hook (denied|error)|requested permissions/i;
+// Scratch/~/.claude paths the digest never carries, so the oracle must not score them.
+const SCRATCH_RE = /^\/(private\/)?tmp\/|\/\.claude\//;
 
 /** Canonical file key: last two path segments, lowercased — cwd-independent repo-relative form. */
 function fileKey(p: string): string {
@@ -53,7 +53,11 @@ function preState(dropped: Rec[]): Pre {
     for (const b of blocks(rec)) {
       if (b?.type === "tool_use") {
         const input = b.input ?? {};
-        if ((b.name === "Edit" || b.name === "Write") && typeof input.file_path === "string") {
+        if (
+          (b.name === "Edit" || b.name === "Write") &&
+          typeof input.file_path === "string" &&
+          !SCRATCH_RE.test(input.file_path)
+        ) {
           editedFiles.add(fileKey(input.file_path));
         }
         if (b.name === "Bash" && typeof input.command === "string" && typeof b.id === "string") {
@@ -87,7 +91,8 @@ function oracleState(window: Rec[]): Oracle {
       const input = b.input ?? {};
       if (
         (b.name === "Read" || b.name === "Edit" || b.name === "Write") &&
-        typeof input.file_path === "string"
+        typeof input.file_path === "string" &&
+        !SCRATCH_RE.test(input.file_path)
       ) {
         files.add(fileKey(input.file_path));
       }
