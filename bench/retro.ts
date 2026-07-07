@@ -112,9 +112,25 @@ function cmdHit(set: Set<string>, sig: string): boolean {
   return false;
 }
 
+/** True when unforget's digest was actually injected at this boundary (hook_success record). */
+function digestInjected(records: Rec[], boundaryIdx: number): boolean {
+  for (let i = boundaryIdx + 1; i < Math.min(boundaryIdx + 20, records.length); i++) {
+    const a = records[i]?.attachment;
+    if (
+      a?.type === "hook_success" &&
+      typeof a.content === "string" &&
+      a.content.startsWith("## Working state restored")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 interface Row {
   name: string;
   boundary: number; // 1-based index within the transcript
+  injected: boolean; // digest was live-injected at this boundary (post-install data)
   dropped: number;
   rediscovery: number;
   avoided: number;
@@ -127,7 +143,7 @@ function scoreBoundary(
   records: Rec[],
   nthFromLast: number,
   window: Rec[],
-): Omit<Row, "name" | "boundary"> {
+): Omit<Row, "name" | "boundary" | "injected"> {
   const split = splitAtBoundary(records, nthFromLast);
   const digest = digestFrom(records, nthFromLast);
   if (!split || !digest) {
@@ -248,7 +264,7 @@ function main(): void {
       const window = records.slice(idx + 1, end);
       const nthFromLast = idxs.length - pos;
       const s = scoreBoundary(records, nthFromLast, window);
-      rows.push({ name, boundary: pos + 1, ...s });
+      rows.push({ name, boundary: pos + 1, injected: digestInjected(records, idx), ...s });
     }
   }
 
@@ -269,7 +285,7 @@ function main(): void {
     const av = r.rediscovery ? (100 * r.avoided) / r.rediscovery : 0;
     console.log(
       pad(r.name, 24) +
-        pad(String(r.boundary), 5) +
+        pad(String(r.boundary) + (r.injected ? "*" : ""), 5) +
         pad(String(r.dropped), 9) +
         pad(String(r.rediscovery), 8) +
         pad(String(r.avoided), 7) +
@@ -302,6 +318,23 @@ function main(): void {
   console.log(`                         rediscoveries the digest carried`);
   console.log(`median precision:        ${medPrec.toFixed(1)}%`);
   console.log(`floor gate (net):        ${FLOOR}%`);
+
+  // Interventional split: * boundaries had the digest live-injected (hook_success record).
+  const pre = rows.filter((r) => !r.injected);
+  const post = rows.filter((r) => r.injected);
+  const rate = (rs: Row[]) =>
+    rs.length ? (rs.reduce((a, r) => a + r.rediscovery, 0) / rs.length).toFixed(2) : "-";
+  console.log("-".repeat(72));
+  console.log(
+    `pre-install (correlational):   ${pre.length} boundaries, ${rate(pre)} rediscoveries/boundary`,
+  );
+  if (post.length === 0) {
+    console.log("post-install (interventional): none yet — keep dogfooding");
+  } else {
+    console.log(
+      `post-install (interventional): ${post.length} boundaries (*), ${rate(post)} rediscoveries/boundary${post.length < 10 ? "  (n small — directional only)" : ""}`,
+    );
+  }
 
   if (netPct < FLOOR) {
     console.error(`\nFAIL: NET AVOIDED% ${netPct.toFixed(1)}% is below floor ${FLOOR}%`);
