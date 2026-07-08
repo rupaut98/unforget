@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { readSync } from "node:fs";
+import { existsSync, readFileSync, readSync, realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { digestInject, digestPath, isEmpty, render, TOOL } from "./digest.js";
-import { applyInit, hookEntry, settingsPath } from "./init.js";
+import { digestInject, digestPath, injectionStatus, isEmpty, render, TOOL } from "./digest.js";
+import { applyInit, hookEntry, installedCommand, settingsPath } from "./init.js";
 import { locate } from "./locate.js";
 import { readRecords } from "./parse.js";
 
@@ -19,6 +19,8 @@ Commands
                        Silent no-op (exit 0, no output) when there is nothing to recover —
                        safe to wire to a SessionStart hook.
   digest               same digest, for human inspection (prints a note when empty)
+  doctor               end-to-end health check: hook installed, runtime paths on disk,
+                       transcript locatable, last injection fresh. Always exits 0.
   init                 add the SessionStart hook to your Claude settings (shows the change,
                        asks first, backs up; idempotent). --remove uninstalls, --yes skips
                        the prompt, --print just shows the hooks block
@@ -98,6 +100,38 @@ function main(): void {
 
   const nth = parseBoundary(v.boundary);
   const path = locate({ transcript: v.transcript, session: v.session });
+
+  if (cmd === "doctor") {
+    // Diagnostic only, exit 0 always: inject is silent-by-design, so death is otherwise invisible.
+    let hookCmd: string | null = null;
+    try {
+      hookCmd = installedCommand(JSON.parse(readFileSync(realpathSync(settingsPath()), "utf8")));
+    } catch {}
+    if (!hookCmd) {
+      console.log(`hook NOT installed in ${settingsPath()} — run \`${TOOL} init\``);
+    } else {
+      console.log(`hook installed: ${hookCmd}`);
+      // quoted paths in the hook command (runtime + script) must exist, or the hook is silently dead.
+      for (const [, p] of hookCmd.matchAll(/"([^"]+)"/g)) {
+        if (p && !existsSync(p)) {
+          console.log(`MISSING path ${p} — hook is silently dead; re-run \`${TOOL} init\``);
+        }
+      }
+    }
+    if (!path) {
+      console.log("no transcript found for this project — nothing has run here yet?");
+      return;
+    }
+    console.log(`transcript: ${path}`);
+    const msg = {
+      fresh: "last injection: fresh — hook verified end to end",
+      stale: "last injection: STALE — digest matched the previous window, not this one",
+      none: "last compaction had NO injection — the hook did not fire or died silently",
+      "no-boundary": "no compaction in this transcript yet — nothing to verify",
+    };
+    console.log(msg[injectionStatus(readRecords(path))]);
+    return;
+  }
 
   if (cmd === "inject") {
     // Silent hook: any failure or missing data ends as a silent exit 0.

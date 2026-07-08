@@ -44,6 +44,12 @@ unforget digest --boundary 2          # the 2nd-from-last compaction instead of 
 unforget digest --transcript path.jsonl --json
 ```
 
+Health check — `inject` is silent by design, so a dead hook is otherwise invisible:
+
+```sh
+unforget doctor   # hook installed? runtime paths on disk? last injection fresh or stale?
+```
+
 ## How it works
 
 1. **Locate** the newest transcript for the current project (`--session <id>` / `--transcript <path>`

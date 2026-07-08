@@ -31,18 +31,30 @@ function hookList(s: Settings): HookEntry[] {
 }
 
 // Ours = any command mentioning the tool and "inject" (absolute-path or bare `unforget inject`).
-function ours(e: HookEntry): boolean {
-  return (
-    Array.isArray(e?.hooks) &&
-    e.hooks.some(
-      (h) =>
-        typeof h?.command === "string" && h.command.includes(TOOL) && h.command.includes("inject"),
-    )
+function ourCommand(e: HookEntry): string | null {
+  if (!Array.isArray(e?.hooks)) return null;
+  const h = e.hooks.find(
+    (h) =>
+      typeof h?.command === "string" && h.command.includes(TOOL) && h.command.includes("inject"),
   );
+  return h?.command ?? null;
+}
+
+function ours(e: HookEntry): boolean {
+  return ourCommand(e) !== null;
 }
 
 export function isInstalled(s: Settings): boolean {
   return hookList(s).some(ours);
+}
+
+/** Command string of our installed hook entry, or null when not installed (doctor checks it). */
+export function installedCommand(s: Settings): string | null {
+  for (const e of hookList(s)) {
+    const c = ourCommand(e);
+    if (c) return c;
+  }
+  return null;
 }
 
 /** Returns new settings with our hook appended (or null when already installed). */
