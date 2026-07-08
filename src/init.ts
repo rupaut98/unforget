@@ -117,9 +117,14 @@ export function applyInit(path: string, remove: boolean, confirm: (msg: string) 
 
   const verb = remove ? "remove from" : "add to";
   let change = `will ${verb} ${real}${real === path ? "" : ` (via ${path})`}:\n${JSON.stringify(hookEntry(), null, 2)}\n(everything else is left untouched)`;
-  // Ephemeral runtime paths (npx/bunx caches, Homebrew Cellar) vanish on upgrade: warn, don't block.
-  if (!remove && /\/_npx\/|\/\.bun\/install\/cache\/|\/Cellar\//.test(hookCommand())) {
-    change += `\nWARNING: this command uses an npx/bunx cache or version-pinned Homebrew path\nthat can vanish on upgrade or cache clean, silently killing the hook.\nPrefer \`npm install -g ${TOOL}\` (then re-run init), or re-run init after upgrades.`;
+  // Runtime paths that move on upgrade (npx/bunx caches, Homebrew, nvm/mise node): warn, don't block.
+  if (
+    !remove &&
+    /\/_npx\/|\/\.bun\/install\/cache\/|\/Cellar\/|\/(nvm|mise)\/|\/versions\/node\//.test(
+      hookCommand(),
+    )
+  ) {
+    change += `\nWARNING: this command uses an npx/bunx cache or a version-pinned runtime path (Homebrew/nvm/mise)\nthat can vanish on upgrade or cache clean, silently killing the hook.\nPrefer \`npm install -g ${TOOL}\` (then re-run init), or re-run init after upgrades.`;
   }
   if (!confirm(change)) {
     console.log("aborted, nothing written");
