@@ -18,3 +18,5 @@ npm-debug.log*
 .vscode/
 .idea/
 bench/baseline-*.txt
+# personal dogfooding decision log — not for the public repo
+bench/CRITERIA.md
