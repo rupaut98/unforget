@@ -33,6 +33,8 @@ function cmdSig(cmd: string): string {
 }
 
 const CMD_KEY = 40; // commands match on their first 40 normalized chars
+// chars/4 estimate; a real tokenizer only if a headline number ever needs to be exact.
+const tokens = (s: string): number => Math.round(s.length / 4);
 
 interface Pre {
   editedFiles: Set<string>;
@@ -72,31 +74,48 @@ function preState(dropped: Rec[]): Pre {
 interface Oracle {
   files: Set<string>;
   commands: Set<string>;
+  // tokens of each key's first redundant re-read/re-run — re-work the digest could spare.
+  fileCost: Map<string, number>;
+  cmdCost: Map<string, number>;
 }
 
-/** ORACLE from the post-boundary window: what the resumed session actually touched. */
+/** Post-boundary re-touches, with each key's first re-read/re-run cost (tool_use → tool_result). */
 function oracleState(window: Rec[]): Oracle {
   const files = new Set<string>();
   const commands = new Set<string>();
+  const fileCost = new Map<string, number>();
+  const cmdCost = new Map<string, number>();
+  const costRef = new Map<string, { cost: Map<string, number>; key: string }>();
   for (const rec of window) {
     if (rec?.type !== "user" && rec?.type !== "assistant") continue;
     if (rec?.isMeta || rec?.isSidechain) continue;
     for (const b of blocks(rec)) {
-      if (b?.type !== "tool_use") continue;
-      const input = b.input ?? {};
-      if (
-        (b.name === "Read" || b.name === "Edit" || b.name === "Write") &&
-        typeof input.file_path === "string" &&
-        !SCRATCH_RE.test(input.file_path)
-      ) {
-        files.add(fileKey(input.file_path));
-      }
-      if (b.name === "Bash" && typeof input.command === "string") {
-        commands.add(cmdSig(input.command));
+      if (b?.type === "tool_use") {
+        const input = b.input ?? {};
+        if (
+          (b.name === "Read" || b.name === "Edit" || b.name === "Write") &&
+          typeof input.file_path === "string" &&
+          !SCRATCH_RE.test(input.file_path)
+        ) {
+          const key = fileKey(input.file_path);
+          files.add(key);
+          // only a re-Read pulls file content back into context; Edit/Write results are trivial.
+          if (b.name === "Read" && typeof b.id === "string")
+            costRef.set(b.id, { cost: fileCost, key });
+        }
+        if (b.name === "Bash" && typeof input.command === "string") {
+          const sig = cmdSig(input.command);
+          commands.add(sig);
+          if (typeof b.id === "string")
+            costRef.set(b.id, { cost: cmdCost, key: sig.slice(0, CMD_KEY) });
+        }
+      } else if (b?.type === "tool_result" && typeof b.tool_use_id === "string") {
+        const ref = costRef.get(b.tool_use_id);
+        if (ref && !ref.cost.has(ref.key)) ref.cost.set(ref.key, tokens(resultText(b)));
       }
     }
   }
-  return { files, commands };
+  return { files, commands, fileCost, cmdCost };
 }
 
 /** True when a normalized signature set contains a first-CMD_KEY-chars match for `sig`. */
@@ -116,6 +135,7 @@ interface Row {
   avoided: number;
   lost: number; // rediscovery events the compact summary did NOT carry
   avoidedNet: number; // of those, how many the digest carried
+  carriedTokens: number; // est. tokens of the net-avoided re-reads/re-runs the digest held
   precision: number | null; // null when the digest had no scorable items
 }
 
@@ -127,7 +147,15 @@ function scoreBoundary(
   const split = splitAtBoundary(records, nthFromLast);
   const digest = digestFrom(records, nthFromLast);
   if (!split || !digest) {
-    return { dropped: 0, rediscovery: 0, avoided: 0, lost: 0, avoidedNet: 0, precision: null };
+    return {
+      dropped: 0,
+      rediscovery: 0,
+      avoided: 0,
+      lost: 0,
+      avoidedNet: 0,
+      carriedTokens: 0,
+      precision: null,
+    };
   }
 
   const pre = preState(split.dropped);
@@ -140,22 +168,26 @@ function scoreBoundary(
   let avoided = 0;
   let lost = 0;
   let avoidedNet = 0;
-  const tally = (key: string, inDigest: boolean) => {
+  let carriedTokens = 0;
+  const tally = (key: string, inDigest: boolean, cost: number) => {
     rediscovery++;
     if (inDigest) avoided++;
     if (!summaryNorm.includes(key)) {
       lost++;
-      if (inDigest) avoidedNet++;
+      if (inDigest) {
+        avoidedNet++;
+        carriedTokens += cost;
+      }
     }
   };
   for (const f of pre.editedFiles) {
     if (!oracle.files.has(f)) continue; // resumed session went back to a file it had edited
-    tally(f, renderedNorm.includes(f));
+    tally(f, renderedNorm.includes(f), oracle.fileCost.get(f) ?? 0);
   }
   for (const c of pre.failedCmds) {
     if (!cmdHit(oracle.commands, c)) continue; // resumed session re-ran a command that had failed
     const key = c.slice(0, CMD_KEY);
-    tally(key, renderedNorm.includes(key));
+    tally(key, renderedNorm.includes(key), oracle.cmdCost.get(key) ?? 0);
   }
 
   // precision: of the digest's concrete claims, how many the oracle actually used
@@ -190,6 +222,7 @@ function scoreBoundary(
     avoided,
     lost,
     avoidedNet,
+    carriedTokens,
     precision: items > 0 ? hit / items : null,
   };
 }
@@ -273,6 +306,9 @@ function main(): void {
   const totalAvoided = rows.reduce((a, r) => a + r.avoided, 0);
   const totalLost = rows.reduce((a, r) => a + r.lost, 0);
   const totalNet = rows.reduce((a, r) => a + r.avoidedNet, 0);
+  const totalCarried = rows.reduce((a, r) => a + r.carriedTokens, 0);
+  const carriedBoundaries = rows.filter((r) => r.carriedTokens > 0).length;
+  const perComp = carriedBoundaries ? Math.round(totalCarried / carriedBoundaries) : 0;
   const avoidedPct = totalRedisc ? (100 * totalAvoided) / totalRedisc : 0;
   const netPct = totalLost ? (100 * totalNet) / totalLost : 0;
   const medPrec = median(
@@ -290,6 +326,12 @@ function main(): void {
     `NET AVOIDED%:            ${netPct.toFixed(1)}%   <- headline: share of summary-LOST`,
   );
   console.log(`                         rediscoveries the digest carried`);
+  console.log(
+    `rediscovery tokens held: ~${totalCarried}  (summary-dropped re-reads/re-runs, uncached input, chars/4 est)`,
+  );
+  console.log(
+    `                         ~${perComp} per compaction that needed it — carried, not proven saved (see bench/CRITERIA.md)`,
+  );
   console.log(`median precision:        ${medPrec.toFixed(1)}%`);
   console.log(`floor gate (net):        ${FLOOR}%`);
 
