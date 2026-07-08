@@ -48,6 +48,17 @@ function askYesNo(question: string): boolean {
   }
 }
 
+/** transcript_path from the hook's stdin JSON (SessionStart passes it); TTY/empty/bad → null. */
+function stdinTranscriptPath(): string | null {
+  if (process.stdin.isTTY) return null;
+  try {
+    const p = JSON.parse(readFileSync(0, "utf8"))?.transcript_path;
+    return typeof p === "string" && p !== "" ? p : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseBoundary(v: unknown): number {
   if (typeof v !== "string") return 1;
   const n = Number.parseInt(v, 10);
@@ -136,8 +147,9 @@ function main(): void {
   if (cmd === "inject") {
     // Silent hook: any failure or missing data ends as a silent exit 0.
     try {
-      if (!path) return;
-      const d = digestInject(readRecords(path));
+      const injectPath = v.transcript ?? stdinTranscriptPath() ?? path;
+      if (!injectPath) return;
+      const d = digestInject(readRecords(injectPath));
       if (!d || isEmpty(d)) return;
       process.stdout.write(`${render(d)}\n`);
     } catch {
