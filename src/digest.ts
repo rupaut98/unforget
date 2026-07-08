@@ -1,5 +1,10 @@
 import { blocks, messageText, type Rec, readRecords, resultText } from "./parse.js";
 
+// Pipeline: window the transcript (splitAtBoundary for `digest`, tailAfterLastBoundary for the
+// hook — the new boundary is flushed only AFTER hooks run) → extract via the heuristics logged
+// in docs/HEURISTICS.md → excludeCovered (summary dedupe, boundary path only) → render (capped).
+// Entry points: digestFrom/digestPath (post-boundary) and digestInject (hook-time).
+
 /** Tool display name; single source of truth for the rename agent. */
 export const TOOL = "unforget";
 
@@ -13,11 +18,12 @@ const CONTINUATION_RE =
   /^(continue|go on|go ahead|proceed|keep going|yes|yep|ok(ay)?|sure|next|do it|please continue)\b/i;
 // Below this many chars a message is chat, not a task statement.
 const SUBSTANTIAL = 60;
-// is_error text meaning "never ran" (declined/blocked), not "ran and failed".
-const REJECTED_RE =
+// is_error text meaning "never ran" (declined/blocked), not "ran and failed". Exported so the
+// retro scorer applies the exact same rule — a private copy would silently drift.
+export const REJECTED_RE =
   /tool use was rejected|doesn'?t want to proceed|permission to use|hook (denied|error)|requested permissions/i;
-// Scratch/meta locations that are not project work — never "in-flight edits".
-const SCRATCH_RE = /^\/(private\/)?tmp\/|\/\.claude\//;
+// Scratch/meta locations that are not project work — never "in-flight edits". Exported for retro.
+export const SCRATCH_RE = /^\/(private\/)?tmp\/|\/\.claude\//;
 // Search/list commands where nonzero exit usually means "no match", not "broken".
 const SEARCH_RE =
   /^\s*(cd\s+[^;&|]+\s*(;|&&)\s*)?(rtk\s+proxy\s+)?(grep|rg|find|ls|git\s+grep|fd)\b/;
@@ -33,17 +39,21 @@ export interface Digest {
   droppedCount: number;
 }
 
+/** Indices of compact_boundary records, in order. */
+export function boundaryIndices(records: Rec[]): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < records.length; i++) {
+    if (records[i]?.type === "system" && records[i]?.subtype === "compact_boundary") out.push(i);
+  }
+  return out;
+}
+
 /** Records dropped at the nth-from-last compact boundary, windowed from the prior boundary; null if none. */
 export function splitAtBoundary(
   records: Rec[],
   nthFromLast = 1,
 ): { dropped: Rec[]; droppedCount: number; summary: string } | null {
-  const boundaryIdxs: number[] = [];
-  for (let i = 0; i < records.length; i++) {
-    if (records[i]?.type === "system" && records[i]?.subtype === "compact_boundary") {
-      boundaryIdxs.push(i);
-    }
-  }
+  const boundaryIdxs = boundaryIndices(records);
   if (boundaryIdxs.length < nthFromLast) return null;
   const pos = boundaryIdxs.length - nthFromLast;
   const idx = boundaryIdxs[pos];
@@ -78,9 +88,7 @@ export function splitAtBoundary(
 /** Records after the last on-disk boundary (whole file if none) — the just-compacted window at
  * hook time, since the new boundary is flushed only AFTER hooks run (hook-contract.md). */
 export function tailAfterLastBoundary(records: Rec[]): Rec[] {
-  const last = records.findLastIndex(
-    (r) => r?.type === "system" && r?.subtype === "compact_boundary",
-  );
+  const last = boundaryIndices(records).at(-1) ?? -1;
   return records.slice(last + 1).filter((r) => !r?.isMeta && !r?.isSidechain);
 }
 
@@ -292,9 +300,14 @@ interface Section {
   items?: string[];
 }
 
+// Injection sentinels, exported so retro/doctor detect exactly what render() produces —
+// a drifted private copy would silently stop recognizing injections.
+export const DIGEST_HEADER = "## Working state restored (lost in compaction)";
+export const DIGEST_FOOTER_RE = /recovered by \w+ from (\d+) dropped messages/;
+
 function assemble(sections: Section[], droppedCount: number): string {
   const lines: string[] = [
-    "## Working state restored (lost in compaction)",
+    DIGEST_HEADER,
     "",
     "_Treat this as current: resume the active task; don't re-read these files or re-run these commands just to rediscover their state._",
     "",
@@ -308,7 +321,7 @@ function assemble(sections: Section[], droppedCount: number): string {
       lines.push("");
     }
   }
-  lines.push(`_(recovered by ${TOOL} from ${droppedCount} dropped messages)_`);
+  lines.push(`_(recovered by ${TOOL} from ${droppedCount} dropped messages)_`); // matches DIGEST_FOOTER_RE
   return lines.join("\n");
 }
 
@@ -352,6 +365,11 @@ export function render(d: Digest): string {
 
 const NEEDLE_MIN = 12; // shorter needles match by accident
 
+/** Canonical file key: last two path segments, lowercased — cwd-independent form (shared with retro). */
+export function fileKey(p: string): string {
+  return p.split("/").filter(Boolean).slice(-2).join("/").toLowerCase();
+}
+
 function norm(s: string): string {
   return s.replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -365,7 +383,7 @@ export function excludeCovered(d: Digest, summaryRaw: string): Digest {
     return needle.length >= NEEDLE_MIN && summary.includes(needle);
   };
   const pathCovered = (p: string) => {
-    const tail = p.split("/").filter(Boolean).slice(-2).join("/").toLowerCase();
+    const tail = fileKey(p);
     return tail.length >= NEEDLE_MIN && summary.includes(tail);
   };
   // Dead-end lines are our own phrasing; match on the backticked command inside instead.
@@ -413,4 +431,41 @@ export function digestPath(path: string, nthFromLast = 1): Digest | null {
 export function digestInject(records: Rec[]): Digest | null {
   const d = extract(tailAfterLastBoundary(records));
   return isEmpty(d) ? digestFrom(records, 1) : d;
+}
+
+/** Was a digest injected after the nth-from-last boundary, and was it fresh? A stale injection
+ * (hook ran pre-boundary-flush against the previous window) carries the wrong dropped-count. */
+export function injectionStatus(
+  records: Rec[],
+  nthFromLast = 1,
+): "fresh" | "stale" | "none" | "no-boundary" {
+  const idxs = boundaryIndices(records);
+  const pos = idxs.length - nthFromLast;
+  const idx = idxs[pos];
+  if (idx === undefined) return "no-boundary";
+
+  let content: string | null = null;
+  const stop = Math.min(idx + 20, idxs[pos + 1] ?? records.length);
+  for (let i = idx + 1; i < stop; i++) {
+    const a = records[i]?.attachment;
+    if (a?.type === "hook_success" && typeof a.content === "string") {
+      if (a.content.startsWith(DIGEST_HEADER)) {
+        content = a.content;
+        break;
+      }
+    }
+  }
+  if (content === null) return "none";
+
+  const m = DIGEST_FOOTER_RE.exec(content);
+  if (!m) return "stale";
+  const n = Number(m[1]);
+  // fresh counts: hook-time tail size, or the boundary diff (a runtime that flushes first);
+  // ±8 slack for housekeeping records straddling the hook-time EOF inside the batch flush.
+  let tail = 0;
+  for (let i = (idxs[pos - 1] ?? -1) + 1; i < idx; i++) {
+    if (!records[i]?.isMeta && !records[i]?.isSidechain) tail++;
+  }
+  const dropped = splitAtBoundary(records, nthFromLast)?.droppedCount ?? Number.NaN;
+  return [tail, dropped].some((k) => Math.abs(k - n) <= 8) ? "fresh" : "stale";
 }

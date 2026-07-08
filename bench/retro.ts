@@ -1,27 +1,26 @@
 // Retro-scorer: replays real compact boundaries, asking if the digest carried the state the
 // resumed session went back to rediscover (re-read an edited file / re-ran a failed command).
 // NET AVOIDED% = share of rediscoveries the built-in summary did NOT carry that the digest did.
-// Run: bun bench/retro.ts   (zero deps, read-only, network-free)
+// Scores YOUR OWN ~/.claude corpus (or $CLAUDE_CONFIG_DIR): the number is reproducible per machine,
+// not a fixed published figure. Run: bun bench/retro.ts   (zero deps, read-only, network-free)
 
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { digestFrom, render, splitAtBoundary } from "../src/digest.js";
+import {
+  boundaryIndices,
+  digestFrom,
+  fileKey,
+  injectionStatus,
+  REJECTED_RE,
+  render,
+  SCRATCH_RE,
+  splitAtBoundary,
+} from "../src/digest.js";
 import { blocks, type Rec, readRecords, resultText } from "../src/parse.js";
 
-// Measured on the local corpus 2026-07-06: NET 95.8%; FLOOR sits below it to guard regressions.
+// Measured on the author's corpus 2026-07-07: NET 96.0%; FLOOR sits below it to guard regressions.
 const FLOOR = 85;
-
-// Rejected/blocked is_error results "never ran" — not a real PRE-failed command.
-const REJECTED_RE =
-  /tool use was rejected|doesn'?t want to proceed|permission to use|hook (denied|error)|requested permissions/i;
-// Scratch/~/.claude paths the digest never carries, so the oracle must not score them.
-const SCRATCH_RE = /^\/(private\/)?tmp\/|\/\.claude\//;
-
-/** Canonical file key: last two path segments, lowercased — cwd-independent repo-relative form. */
-function fileKey(p: string): string {
-  return p.split("/").filter(Boolean).slice(-2).join("/").toLowerCase();
-}
 
 /** Normalized command signature: strip a leading `cd …;`/`cd … &&`, collapse whitespace, 60 chars. */
 function cmdSig(cmd: string): string {
@@ -105,26 +104,6 @@ function cmdHit(set: Set<string>, sig: string): boolean {
   if (sig.length < 8) return false;
   const key = sig.slice(0, CMD_KEY);
   for (const s of set) if (s.slice(0, CMD_KEY) === key) return true;
-  return false;
-}
-
-/** True when a FRESH digest was live-injected here: its footer count must match this boundary's
- * own window — a stale injection (hook ran pre-boundary-flush) carries the previous window's. */
-function digestInjected(records: Rec[], boundaryIdx: number, okCounts: number[]): boolean {
-  for (let i = boundaryIdx + 1; i < Math.min(boundaryIdx + 20, records.length); i++) {
-    const a = records[i]?.attachment;
-    if (
-      a?.type === "hook_success" &&
-      typeof a.content === "string" &&
-      a.content.startsWith("## Working state restored")
-    ) {
-      const m = /from (\d+) dropped messages/.exec(a.content);
-      if (!m) return false;
-      const n = Number(m[1]);
-      // slack: a few housekeeping records straddle the hook-time EOF inside the batch flush.
-      return okCounts.some((k) => Math.abs(k - n) <= 8);
-    }
-  }
   return false;
 }
 
@@ -215,15 +194,6 @@ function scoreBoundary(
   };
 }
 
-/** Boundary record indices (order preserved), for slicing post-boundary windows. */
-function boundaryIdxs(records: Rec[]): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < records.length; i++) {
-    if (records[i]?.type === "system" && records[i]?.subtype === "compact_boundary") out.push(i);
-  }
-  return out;
-}
-
 function median(xs: number[]): number {
   if (xs.length === 0) return 0;
   const s = [...xs].sort((a, b) => a - b);
@@ -256,23 +226,17 @@ function main(): void {
   const rows: Row[] = [];
   for (const { path, name } of files) {
     const records = readRecords(path);
-    const idxs = boundaryIdxs(records);
+    const idxs = boundaryIndices(records);
     for (let pos = 0; pos < idxs.length; pos++) {
       const idx = idxs[pos] ?? 0;
       const end = idxs[pos + 1] ?? records.length;
       const window = records.slice(idx + 1, end);
       const nthFromLast = idxs.length - pos;
       const s = scoreBoundary(records, nthFromLast, window);
-      // fresh-injection counts: hook-time tail size, or the boundary diff (future flush order).
-      const prevIdx = idxs[pos - 1] ?? -1;
-      let tailCount = 0;
-      for (let i = prevIdx + 1; i < idx; i++) {
-        if (!records[i]?.isMeta && !records[i]?.isSidechain) tailCount++;
-      }
       rows.push({
         name,
         boundary: pos + 1,
-        injected: digestInjected(records, idx, [tailCount, s.dropped]),
+        injected: injectionStatus(records, nthFromLast) === "fresh",
         ...s,
       });
     }

@@ -6,6 +6,7 @@ import {
   digestInject,
   excludeCovered,
   extract,
+  injectionStatus,
   isEmpty,
   render,
   splitAtBoundary,
@@ -376,6 +377,39 @@ describe("digestInject (hook-time tail window)", () => {
   test("empty tail (boundary flushed before hooks) falls back to the boundary diff", () => {
     const d = digestInject([user(newAsk), boundary])!;
     expect(d.activeTask).toBe(newAsk);
+  });
+});
+
+describe("injectionStatus (fresh vs stale live injection)", () => {
+  const boundary = {
+    type: "system",
+    subtype: "compact_boundary",
+    uuid: "b2",
+    compactMetadata: { preservedMessages: { allUuids: [] } },
+  };
+  const hookSuccess = (n: number) => ({
+    type: "attachment",
+    attachment: {
+      type: "hook_success",
+      content: `## Working state restored (lost in compaction)\n\n_(recovered by unforget from ${n} dropped messages)_`,
+    },
+  });
+  const work = [
+    user("Fix the parser edge case in the tokenizer please."),
+    user("Also add a test."),
+  ];
+
+  test("footer count matching the boundary's own window is fresh", () => {
+    expect(injectionStatus([...work, boundary, hookSuccess(2)])).toBe("fresh");
+  });
+
+  test("footer count from a different window is stale", () => {
+    expect(injectionStatus([...work, boundary, hookSuccess(500)])).toBe("stale");
+  });
+
+  test("no hook record after the boundary is none; no boundary at all is no-boundary", () => {
+    expect(injectionStatus([...work, boundary])).toBe("none");
+    expect(injectionStatus(work)).toBe("no-boundary");
   });
 });
 
