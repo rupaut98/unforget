@@ -16,11 +16,15 @@ Commands:
 
 Keep all four green.
 
-Modules: cli.ts (dispatch: inject default, digest, init), locate.ts (resolve transcript),
-digest.ts (boundary diff, hook-time tail window, extraction, summary-dedupe, render; the TOOL
-display name lives here),
+Modules: cli.ts (dispatch: inject default, digest, doctor, init), locate.ts (resolve transcript),
+digest.ts (boundary diff, hook-time tail window, extraction, summary-dedupe, render, injection
+freshness; the TOOL display name and shared regexes live here — retro imports them, never copies),
 init.ts (settings.json hook writer: symlink-safe, backup, confirm-first),
 parse.ts (tolerant JSONL reading).
+
+Every extraction filter gets a row in docs/HEURISTICS.md (what it catches + the finding that
+motivated it). The go-public bar is pre-registered in bench/CRITERIA.md (local-only, gitignored
+like bench/baseline-*.txt — personal dogfooding data never ships).
 
 Invariants:
 
