@@ -2,16 +2,24 @@
 
 **Re-inject the working state Claude Code loses when it compacts context.**
 
-When Claude Code compacts a long conversation, it replaces the transcript with a short
-summary. That summary is lossy: the file you were mid-edit on, the command that just failed,
-the approach you already ruled out, the constraint you set 40 turns ago — gone from context.
+[![npm version](https://img.shields.io/npm/v/unforget.svg)](https://www.npmjs.com/package/unforget)
+[![npm downloads](https://img.shields.io/npm/dm/unforget.svg)](https://www.npmjs.com/package/unforget)
+[![CI](https://github.com/rupaut98/unforget/actions/workflows/ci.yml/badge.svg)](https://github.com/rupaut98/unforget/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/npm/l/unforget.svg)](./LICENSE)
+[![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](https://github.com/rupaut98/unforget/blob/main/package.json)
 
-`unforget` reads the transcript that Claude Code keeps on disk (append-only, it survives
-compaction), figures out exactly what was dropped, and prints a compact markdown digest of the
-working state so it can be fed straight back into the fresh context via a hook.
+![unforget recovering working state after a compaction](https://raw.githubusercontent.com/rupaut98/unforget/main/demo/hero.gif)
 
-- **Zero runtime dependencies.** Reads your transcripts locally. Never makes a network call.
-- **Reads only your own machine**, under `~/.claude` (or `$CLAUDE_CONFIG_DIR`).
+When Claude Code compacts a long session it swaps the transcript for a short summary, and that
+summary is lossy: the file you were mid-edit on, the command that just failed, the approach you
+ruled out, the constraint you set 40 turns ago — gone.
+
+`unforget` reads the on-disk transcript (append-only, survives compaction), works out exactly what
+was dropped, and re-injects a compact digest of it through a `SessionStart` hook — so the fresh
+context picks up where you left off.
+
+- **Zero runtime dependencies.** Local only, never a network call.
+- **Reads only `~/.claude`** (or `$CLAUDE_CONFIG_DIR`); writes nothing but its own hook config.
 - **Silent when there's nothing to recover** — safe to wire to a hook.
 
 ## Install
@@ -22,81 +30,60 @@ npm install -g unforget   # or: bunx unforget / npx unforget
 
 ## Use
 
-Automatic — add the hook so every post-compaction session starts with the digest re-injected:
+Add the hook once; every post-compaction session then starts with the digest re-injected:
 
 ```sh
-unforget init           # shows the exact settings.json change, asks, backs up, then writes
+unforget init           # shows the settings.json change, asks, backs up, then writes
 unforget init --remove  # uninstall
-unforget init --yes     # skip the confirmation prompt
-unforget init --print   # just print the hooks block to add by hand
+unforget init --print   # print the hooks block instead of writing
 ```
 
-That registers a `SessionStart` hook (matcher `compact`) running `unforget inject`, written with
-absolute paths so it still fires when Claude Code is launched from a GUI app with a minimal
-`PATH`. `init` resolves symlinks and writes through them (dotfiles-managed settings stay
-symlinked), and refuses to touch a settings file it can't parse.
+It registers a `SessionStart` hook (matcher `compact`) with absolute paths, so it still fires when
+Claude Code launches from a GUI app with a minimal `PATH`. Symlink-safe; refuses a settings file it
+can't parse.
 
-Manual — inspect what a compaction dropped:
+Inspect or verify by hand:
 
 ```sh
-unforget digest                       # digest for the newest transcript in the current project
-unforget digest --boundary 2          # the 2nd-from-last compaction instead of the last
-unforget digest --transcript path.jsonl --json
+unforget digest    # what the newest compaction dropped (--boundary N, --transcript, --json)
+unforget doctor    # hook installed? paths on disk? last injection fresh?
 ```
 
-Health check — `inject` is silent by design, so a dead hook is otherwise invisible:
+## Does it work?
 
-```sh
-unforget doctor   # hook installed? runtime paths on disk? last injection fresh or stale?
-```
+The built-in summary already covers most mechanical rediscovery; unforget catches what it drops.
+In the author's own dogfooding — 10 post-install compactions, self-measured:
+
+- **0.70 vs 3.06** rediscoveries per compaction (files re-read / commands re-run that were already
+  known) — roughly 4× fewer.
+- **96%** of the working state the summary dropped was carried by the digest.
+- **~1,100 tokens** of that state re-injected per compaction that needed it.
+
+Small single-machine sample — directional, not a guarantee. Run `bun bench/retro.ts` against your
+own `~/.claude` to measure it yourself.
 
 ## How it works
 
-1. **Locate** the newest transcript for the current project (`--session <id>` / `--transcript <path>`
-   to override). Project dir is `~/.claude/projects/<cwd with `/` and `.` → `-`>/`.
-2. **Boundary.** Find the last `compact_boundary` record and read its `preservedMessages` — the set
-   of message UUIDs that survived into the new context.
-3. **Dropped set.** Everything between the *previous* boundary and this one whose UUID was not
-   preserved. (Windowing from the previous boundary, not the file start, is deliberate — records
-   before it were already summarized once and re-surfacing them is noise, not lost state.)
-4. **Extract** a deterministic digest from the dropped records only:
-   - **Active task** — the most recent substantial user ask. Chat filler ("full path", "ok
-     continue"), interruption markers, cross-session notifications, pasted terminal output,
-     and pasted status reports are filtered out first; validated against real compaction
-     boundaries.
-   - **In-flight edits** — files touched by `Edit`/`Write`, with edit counts.
-   - **Commands & outcomes** — `Bash` command failures and the latest test result. Successful
-     commands stay in `digest --json` but are not injected: on real boundaries they were 89% of
-     items and almost never useful.
-   - **Dead-ends** — commands that failed 2+ times with the same prefix, and files whose edits
-     were followed by a failure and a switch to another file (possibly unfinished).
-   - **Constraints** — "don't / never / must not / always …" sentences from your messages.
-   - **Next step** — the last thing the assistant said it would do.
-5. **Dedupe** against the built-in compact summary: anything the summary already carries is
-   dropped, so only what was genuinely lost gets re-injected. The summary is read purely as an
-   exclusion filter, never as a content source.
-6. **Render** markdown, empty sections omitted, hard-capped at 9,500 characters (oldest items
-   trimmed first).
+1. Find the newest transcript's last `compact_boundary`; read which message UUIDs survived.
+2. Dropped set = messages since the *previous* boundary that weren't preserved.
+3. Extract a deterministic digest from the dropped records: active task, in-flight edits, failed
+   commands + last test result, dead-ends, constraints (`don't / always …`), next step.
+4. Drop anything the built-in summary already carries (summary read as a filter, never a source).
+5. Render markdown, empty sections omitted, capped at 9,500 characters.
 
-One asymmetry: Claude Code flushes the new boundary (and summary) to disk only *after*
-SessionStart hooks run. So the hook path (`inject`) windows from the last *flushed* boundary to
-end-of-file — the exact window that was just compacted — with the same extraction and no summary
-to dedupe against yet. The boundary-diff steps above are what `unforget digest` sees after the
-fact.
+Claude Code flushes the new boundary to disk only *after* hooks run, so the live hook (`inject`)
+windows from the last flushed boundary to end-of-file — the just-compacted turns — while `digest`
+reconstructs it after the fact. See [`docs/hook-contract.md`](docs/hook-contract.md).
 
 ## Privacy
 
-`unforget` reads message content because reconstructing working state *is* the product — but it
-only ever reads files under your own `~/.claude`, writes nothing outside its own config, and makes
-no network calls. Nothing leaves your machine.
+Reconstructing working state means reading message content — but only under your own `~/.claude`,
+writing nothing outside its own config, with no network calls. Nothing leaves your machine.
 
 ## Development
 
 ```sh
-bun test          # tests
-bunx tsc --noEmit # typecheck
-biome check src test
-bun run build     # tsdown → dist/cli.mjs
+bun test && bunx tsc --noEmit && biome check src test && bun run build
 ```
 
 MIT
