@@ -1,0 +1,45 @@
+name: Claude Assistant
+
+# Responds to @claude mentions, but ONLY from the repo OWNER (you). On a public repo,
+# strangers are ignored: the OWNER gate blocks the job, and claude-code-action separately
+# requires write access. Each branch is scoped by event_name on purpose — an issue_comment
+# payload also carries github.event.issue, so an unscoped issue.* check would let a stranger's
+# comment on an owner-authored issue trigger a run.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened]
+
+jobs:
+  assistant:
+    if: >
+      (github.event_name == 'issue_comment' &&
+        contains(github.event.comment.body, '@claude') &&
+        github.event.comment.author_association == 'OWNER') ||
+      (github.event_name == 'pull_request_review_comment' &&
+        contains(github.event.comment.body, '@claude') &&
+        github.event.comment.author_association == 'OWNER') ||
+      (github.event_name == 'issues' &&
+        (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
+        github.event.issue.author_association == 'OWNER')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # read/answer assistant; to push commits add 'write' + Edit,Write + bun setup
+      pull-requests: write
+      issues: write
+      id-token: write # the action mints its GitHub token via OIDC — required
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --model claude-opus-4-8
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(gh pr view:*),Bash(gh pr diff:*)"
