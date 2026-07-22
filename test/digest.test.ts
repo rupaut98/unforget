@@ -126,6 +126,13 @@ describe("active task heuristic", () => {
     expect(d.activeTask).toStartWith("Wire the retry helper");
   });
 
+  test("[Image #N] placeholders are stripped from the task line", () => {
+    const d = extract([
+      user("[Image #3] there needs to be a line divider between sections and make the font bigger"),
+    ]);
+    expect(d.activeTask).toStartWith("there needs to be a line divider");
+  });
+
   test("continuation+filler is skipped when a real ask exists, but still works as fallback", () => {
     const only = extract([user("continue working please")]);
     expect(only.activeTask).toBe("continue working please");
