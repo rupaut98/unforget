@@ -75,4 +75,13 @@ describe("applyInit writes through symlinks", () => {
     applyInit(p, false, () => false);
     expect(readFileSync(p, "utf8")).toBe("{}");
   });
+
+  test("valid-JSON-but-non-object root aborts (an array would be spread into junk keys)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "unforget-init-"));
+    const p = join(dir, "settings.json");
+    writeFileSync(p, "[]");
+    applyInit(p, false, () => true);
+    expect(readFileSync(p, "utf8")).toBe("[]");
+    process.exitCode = 0;
+  });
 });

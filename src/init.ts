@@ -93,6 +93,12 @@ export function applyInit(path: string, remove: boolean, confirm: (msg: string) 
       process.exitCode = 1;
       return;
     }
+    // a non-object root ("[]", a bare string) would be spread into junk keys by withHook
+    if (typeof current !== "object" || current === null || Array.isArray(current)) {
+      process.stderr.write(`${real} is not a settings object — fix it first, nothing written\n`);
+      process.exitCode = 1;
+      return;
+    }
   }
 
   // Unexpected hooks shape: refuse, tell the user, write nothing.
