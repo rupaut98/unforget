@@ -12,6 +12,7 @@ import {
   digestFrom,
   fileKey,
   injectionStatus,
+  looksLikePaste,
   REJECTED_RE,
   render,
   SCRATCH_RE,
@@ -21,6 +22,8 @@ import { blocks, type Rec, readRecords, resultText } from "../src/parse.js";
 
 // Measured on the author's corpus 2026-07-07: NET 96.0%; FLOOR sits below it to guard regressions.
 const FLOOR = 85;
+// Measured 7.9% (2026-07-21); dump-everything keeps NET high while precision collapses.
+const PRECISION_FLOOR = 5;
 
 /** Normalized command signature: strip a leading `cd …;`/`cd … &&`, collapse whitespace, 60 chars. */
 function cmdSig(cmd: string): string {
@@ -137,6 +140,7 @@ interface Row {
   avoidedNet: number; // of those, how many the digest carried
   carriedTokens: number; // est. tokens of the net-avoided re-reads/re-runs the digest held
   precision: number | null; // null when the digest had no scorable items
+  pasteTask: boolean; // activeTask reads as pasted output — gated at 0
 }
 
 function scoreBoundary(
@@ -155,6 +159,7 @@ function scoreBoundary(
       avoidedNet: 0,
       carriedTokens: 0,
       precision: null,
+      pasteTask: false,
     };
   }
 
@@ -224,6 +229,7 @@ function scoreBoundary(
     avoidedNet,
     carriedTokens,
     precision: items > 0 ? hit / items : null,
+    pasteTask: digest.activeTask !== null && looksLikePaste(digest.activeTask),
   };
 }
 
@@ -332,7 +338,9 @@ function main(): void {
   console.log(
     `                         ~${perComp} per compaction that needed it — carried, not proven saved (see bench/CRITERIA.md)`,
   );
-  console.log(`median precision:        ${medPrec.toFixed(1)}%`);
+  const pasteTasks = rows.filter((r) => r.pasteTask);
+  console.log(`median precision:        ${medPrec.toFixed(1)}%  (floor ${PRECISION_FLOOR}%)`);
+  console.log(`paste-as-active-task:    ${pasteTasks.length}  (gate: 0)`);
   console.log(`floor gate (net):        ${FLOOR}%`);
 
   // Interventional split: * boundaries had the digest live-injected (hook_success record).
@@ -354,6 +362,18 @@ function main(): void {
 
   if (netPct < FLOOR) {
     console.error(`\nFAIL: NET AVOIDED% ${netPct.toFixed(1)}% is below floor ${FLOOR}%`);
+    process.exit(1);
+  }
+  if (medPrec < PRECISION_FLOOR) {
+    console.error(
+      `\nFAIL: median precision ${medPrec.toFixed(1)}% is below floor ${PRECISION_FLOOR}%`,
+    );
+    process.exit(1);
+  }
+  if (pasteTasks.length > 0) {
+    for (const r of pasteTasks)
+      console.error(`  paste-as-active-task: ${r.name} bnd ${r.boundary}`);
+    console.error(`\nFAIL: ${pasteTasks.length} boundaries chose pasted output as the active task`);
     process.exit(1);
   }
 }

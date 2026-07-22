@@ -25,4 +25,6 @@ unless noted.
 | `looksLikePaste` (prose-line majority) | pasted output of ANY tool (psql tables, shell sessions, stack traces) winning active-task | 2026-07-21: a psql fragment and a React trace each won the slot; per-format regexes rejected as a treadmill (a psql-only fix needed 3 prompt variants in one sitting) |
 
 Validation: `bench/retro.ts` replays every real compact boundary on this machine and gates
-NET AVOIDED% at a floor — any filter change that loses working state fails the run.
+NET AVOIDED% at a floor, median precision at a floor (verbosity guard: dumping everything keeps
+NET high while precision collapses), and paste-as-active-task at zero — any filter change that
+loses working state or lets a paste win the orienting line fails the run.
