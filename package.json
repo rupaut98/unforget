@@ -1,6 +1,6 @@
 {
   "name": "unforget",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "re-inject working state lost when Claude Code compacts context",
   "type": "module",
   "bin": {
