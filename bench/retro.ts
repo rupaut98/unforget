@@ -241,7 +241,8 @@ function median(xs: number[]): number {
 }
 
 function pad(s: string, n: number): string {
-  return s.length >= n ? s : s + " ".repeat(n - s.length);
+  // truncate: an overflowing name glues onto the next column and breaks row parsing
+  return s.length >= n ? `${s.slice(0, n - 1)} ` : s + " ".repeat(n - s.length);
 }
 
 function main(): void {
