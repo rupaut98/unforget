@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+const FIXTURE = fileURLToPath(new URL("./fixtures/session.jsonl", import.meta.url));
 
 describe("inject silence invariant", () => {
   test("unknown flag: no output, exit 0 (a typo'd hook command must stay quiet)", () => {
@@ -23,8 +24,6 @@ describe("inject silence invariant", () => {
 });
 
 describe("inject reads the transcript from hook stdin", () => {
-  const FIXTURE = fileURLToPath(new URL("./fixtures/session.jsonl", import.meta.url));
-
   test("stdin transcript_path is honored when locate() would find nothing", () => {
     const empty = mkdtempSync(join(tmpdir(), "unforget-stdin-"));
     const env = { ...process.env, CLAUDE_CONFIG_DIR: empty };
@@ -39,6 +38,19 @@ describe("inject reads the transcript from hook stdin", () => {
     // without the stdin path, locate() finds nothing → silent
     const bare = spawnSync("bun", [CLI, "inject"], { encoding: "utf8", env, input: "" });
     expect(bare.stdout).toBe("");
+  });
+
+});
+
+describe("digest positional path", () => {
+  test("`digest <path>` reads that transcript instead of auto-locating", () => {
+    const empty = mkdtempSync(join(tmpdir(), "unforget-positional-"));
+    const r = spawnSync("bun", [CLI, "digest", FIXTURE], {
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE_CONFIG_DIR: empty },
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("Working state restored");
   });
 });
 

@@ -18,7 +18,7 @@ Commands
   inject               (default) print the recovered digest for the current project.
                        Silent no-op (exit 0, no output) when there is nothing to recover —
                        safe to wire to a SessionStart hook.
-  digest               same digest, for human inspection (prints a note when empty)
+  digest [path]        same digest, for human inspection (prints a note when empty)
   doctor               end-to-end health check: hook installed, runtime paths on disk,
                        transcript locatable, last injection fresh. Always exits 0.
   init                 add the SessionStart hook to your Claude settings (shows the change,
@@ -110,7 +110,7 @@ function main(): void {
   }
 
   const nth = parseBoundary(v.boundary);
-  const path = locate({ transcript: v.transcript, session: v.session });
+  const path = locate({ transcript: v.transcript ?? parsed.positionals[1], session: v.session });
 
   if (cmd === "doctor") {
     // Diagnostic only, exit 0 always: inject is silent-by-design, so death is otherwise invisible.
