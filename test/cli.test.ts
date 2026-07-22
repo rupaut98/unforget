@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +40,17 @@ describe("inject reads the transcript from hook stdin", () => {
     expect(bare.stdout).toBe("");
   });
 
+  test("inject stays silent on a transcript of only malformed lines (invariant 2)", () => {
+    const p = join(mkdtempSync(join(tmpdir(), "unforget-garbage-")), "t.jsonl");
+    writeFileSync(p, "{not json\n{also not json\n");
+    const r = spawnSync("bun", [CLI, "inject"], {
+      encoding: "utf8",
+      input: JSON.stringify({ transcript_path: p }),
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toBe("");
+  });
 });
 
 describe("digest positional path", () => {
