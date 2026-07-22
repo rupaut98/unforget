@@ -122,6 +122,8 @@ function pasteRatio(text: string): number {
   return weird / words.length;
 }
 
+const IMAGE_PLACEHOLDER_RE = /\[Image #\d+\]\s*/g;
+
 /** A user message that reads like a real ask — not chat filler, notifications, or pasted output. */
 function isTaskAsk(text: string): boolean {
   const s = text.trim();
@@ -166,8 +168,8 @@ export function extract(dropped: Rec[]): Digest {
 
   for (const rec of dropped) {
     if (isSubstantiveUser(rec)) {
-      const text = messageText(rec);
-      activeTaskFallback = text;
+      const text = messageText(rec).replace(IMAGE_PLACEHOLDER_RE, "").trim();
+      if (text !== "") activeTaskFallback = text;
       if (isTaskAsk(text)) {
         asks.push(text);
         // constraints only from real asks: pasted policy/teammate text is full of stray "never/don't".
