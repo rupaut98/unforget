@@ -45,18 +45,18 @@ can't parse.
 Inspect or verify by hand:
 
 ```sh
-unforget digest    # what the newest compaction dropped (--boundary N, --transcript, --json)
+unforget digest [path]   # what the newest compaction dropped (--boundary N, --json)
 unforget doctor    # hook installed? paths on disk? last injection fresh?
 ```
 
 ## Does it work?
 
 The built-in summary already covers most mechanical rediscovery; unforget catches what it drops.
-In the author's own dogfooding — 10 post-install compactions, self-measured:
+In the author's own dogfooding — 28 post-install compactions, self-measured:
 
-- **0.70 vs 3.06** rediscoveries per compaction (files re-read / commands re-run that were already
-  known) — roughly 4× fewer.
-- **96%** of the working state the summary dropped was carried by the digest.
+- **1.0 vs 3.06** median rediscoveries per compaction (files re-read / commands re-run that were
+  already known). The mean is noisier (2.21 — a few image-heavy UI sessions rediscover a lot).
+- **97%** of the working state the summary dropped was carried by the digest.
 - **~1,100 tokens** of that state re-injected per compaction that needed it.
 
 Small single-machine sample — directional, not a guarantee. Run `bun bench/retro.ts` against your
