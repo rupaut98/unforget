@@ -126,6 +126,31 @@ describe("active task heuristic", () => {
     expect(d.activeTask).toStartWith("Wire the retry helper");
   });
 
+  test("a long pasted fragment never beats a short real ask", () => {
+    // this psql shape dodges the columnar check (single-space columns) and pasteRatio (wordy SQL)
+    const psql = [
+      "gres=> SELECT sync_status, sync_error_message FROM public.sessions WHERE id='abc';",
+      " sync_status | sync_error_message",
+      "-------------+--------------------",
+      " completed   |",
+      "(1 row)",
+    ].join("\n");
+    const d = extract([user(psql), user("continue the tracing, it mistakenly got killed")]);
+    expect(d.activeTask).toBe("continue the tracing, it mistakenly got killed");
+
+    // different paste family, same rule
+    const trace = [
+      "react-dom-client.development.js:4901 Uncaught Error: Maximum update depth exceeded.",
+      "    at checkForNestedUpdates (react-dom-client.development.js:4901:15)",
+      "    at scheduleUpdateOnFiber (react-dom-client.development.js:1567:7)",
+    ].join("\n");
+    const e = extract([
+      user("Fix the settings page render loop and keep the tests green."),
+      user(trace),
+    ]);
+    expect(e.activeTask).toStartWith("Fix the settings page");
+  });
+
   test("[Image #N] placeholders are stripped from the task line", () => {
     const d = extract([
       user("[Image #3] there needs to be a line divider between sections and make the font bigger"),

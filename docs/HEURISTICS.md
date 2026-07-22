@@ -22,6 +22,7 @@ unless noted.
 | hook-time tail window (`tailAfterLastBoundary`) | one-compaction-stale injections | 2026-07-07: the boundary is flushed AFTER hooks run (hook-contract.md) |
 | footer-count freshness (`injectionStatus`) | crediting stale injections as interventional data | same finding; shared by `bench/retro.ts` and `doctor` |
 | `IMAGE_PLACEHOLDER_RE` strip | `[Image #N]` placeholders polluting task/constraint lines | 2026-07-21 corpus replay: 4 of 10 flagged active-tasks were fine asks wearing image placeholders |
+| `looksLikePaste` (prose-line majority) | pasted output of ANY tool (psql tables, shell sessions, stack traces) winning active-task | 2026-07-21: a psql fragment and a React trace each won the slot; per-format regexes rejected as a treadmill (a psql-only fix needed 3 prompt variants in one sitting) |
 
 Validation: `bench/retro.ts` replays every real compact boundary on this machine and gates
 NET AVOIDED% at a floor — any filter change that loses working state fails the run.

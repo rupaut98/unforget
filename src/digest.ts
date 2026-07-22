@@ -124,6 +124,27 @@ function pasteRatio(text: string): number {
 
 const IMAGE_PLACEHOLDER_RE = /\[Image #\d+\]\s*/g;
 
+/** Typed-prose line: prose lead (list markers count), no column runs, mostly letters, sentence-like end. */
+function isProseLine(line: string): boolean {
+  const s = line.trim().replace(/^(\d+[.)]|[-*])\s+/, "");
+  if (s === "") return true; // blank lines don't vote
+  if (/^[^a-zA-Z"'(]/.test(s)) return false; // symbol/digit lead: table row, prompt, rule
+  if (/ \| |\S {3,}\S/.test(s)) return false; // column separators
+  const alpha = (s.match(/[a-zA-Z\s]/g) ?? []).length;
+  return alpha / s.length >= 0.6 && /[a-zA-Z.?!]$/.test(s);
+}
+
+/** Most lines aren't prose → pasted output of any tool. Deliberately generic — per-format
+ * regexes are a treadmill (HEURISTICS.md). Exported: the bench gates on this exact rule. */
+export function looksLikePaste(text: string): boolean {
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return false;
+  return lines.filter((l) => !isProseLine(l)).length > lines.length / 2;
+}
+
 /** A user message that reads like a real ask — not chat filler, notifications, or pasted output. */
 function isTaskAsk(text: string): boolean {
   const s = text.trim();
@@ -133,6 +154,7 @@ function isTaskAsk(text: string): boolean {
   if (s.split(/\s+/).length < 5) return false;
   // columnar output: 3+-space runs on 2+ lines never occur in typed prose.
   if (s.split("\n").filter((l) => /\S {3,}\S/.test(l)).length >= 2) return false;
+  if (looksLikePaste(s)) return false;
   return pasteRatio(s) < 0.3;
 }
 
@@ -169,7 +191,8 @@ export function extract(dropped: Rec[]): Digest {
   for (const rec of dropped) {
     if (isSubstantiveUser(rec)) {
       const text = messageText(rec).replace(IMAGE_PLACEHOLDER_RE, "").trim();
-      if (text !== "") activeTaskFallback = text;
+      // pastes are excluded even from the fallback: a wrong orienting line is worse than none.
+      if (text !== "" && !looksLikePaste(text)) activeTaskFallback = text;
       if (isTaskAsk(text)) {
         asks.push(text);
         // constraints only from real asks: pasted policy/teammate text is full of stray "never/don't".
