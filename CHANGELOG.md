@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/rupaut98/unforget/compare/v0.2.0...v0.2.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* **init:** flag ephemeral bunx/temp install paths the fragility warning missed ([f4357ab](https://github.com/rupaut98/unforget/commit/f4357ab0f4e7b52872d069b4200222809ff07019))
+
 ## [0.2.0](https://github.com/rupaut98/unforget/compare/v0.1.0...v0.2.0) (2026-07-22)
 
 
