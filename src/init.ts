@@ -3,6 +3,11 @@ import { join } from "node:path";
 import { TOOL } from "./digest.js";
 import { configDir } from "./locate.js";
 
+/** Paths that vanish on upgrade or temp-cleanup, silently killing the hook: npx/bunx caches, OS
+ * temp dirs, version-pinned node installs. Matches the pinned-install shape, never a stable shim. */
+export const FRAGILE_PATH =
+  /\/_npx\/|bunx-|\/var\/folders\/|\/\.bun\/install\/cache\/|\/Cellar\/|\/(?:installs|versions)\/node(?:js)?\/|\/node-versions\/|\/\.volta\/tools\//;
+
 /** Absolute runtime + script path, not bare "unforget": GUI-launched hooks get a minimal PATH
  * that often lacks the npm global bin, and a PATH miss is a silently dead hook. */
 export function hookCommand(): string {
@@ -123,14 +128,9 @@ export function applyInit(path: string, remove: boolean, confirm: (msg: string) 
 
   const verb = remove ? "remove from" : "add to";
   let change = `will ${verb} ${real}${real === path ? "" : ` (via ${path})`}:\n${JSON.stringify(hookEntry(), null, 2)}\n(everything else is left untouched)`;
-  // Runtime paths that move on upgrade (npx/bunx caches, Homebrew, nvm/mise node): warn, don't block.
-  if (
-    !remove &&
-    /\/_npx\/|\/\.bun\/install\/cache\/|\/Cellar\/|\/(nvm|mise)\/|\/versions\/node\//.test(
-      hookCommand(),
-    )
-  ) {
-    change += `\nWARNING: this command uses an npx/bunx cache or a version-pinned runtime path (Homebrew/nvm/mise)\nthat can vanish on upgrade or cache clean, silently killing the hook.\nPrefer \`npm install -g ${TOOL}\` (then re-run init), or re-run init after upgrades.`;
+  // Warn, don't block: the path may still outlive the user's interest in it.
+  if (!remove && FRAGILE_PATH.test(hookCommand())) {
+    change += `\nWARNING: this command uses an npx/bunx cache, an OS temp dir, or a version-pinned\nruntime path (Homebrew/nvm/fnm/volta/mise) that can vanish on upgrade or cache clean,\nsilently killing the hook.\nInstall from a stable location (a cloned repo, or \`npm install -g ${TOOL}\` under a\nnon-version-managed node), then re-run init. \`${TOOL} doctor\` reports a dead hook.`;
   }
   if (!confirm(change)) {
     console.log("aborted, nothing written");

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyInit,
+  FRAGILE_PATH,
   hookCommand,
   hookEntry,
   isInstalled,
@@ -34,6 +35,26 @@ describe("hook merge logic", () => {
     const cmd = hookCommand();
     expect(cmd).toContain(process.execPath);
     expect(cmd).toEndWith(" inject");
+  });
+
+  test("fragile-path warning fires on ephemeral installs, not on a version-independent shim", () => {
+    // the observed breakage: a bunx temp dir, wiped by the OS days later
+    expect(
+      FRAGILE_PATH.test(
+        '"/Users/x/.bun/bin/bun" "/var/folders/f5/q/T/bunx-501-unforget@latest/node_modules/.bin/unforget" inject',
+      ),
+    ).toBe(true);
+    expect(FRAGILE_PATH.test("/Users/x/.local/share/mise/installs/node/22.22.2/bin/node")).toBe(
+      true,
+    );
+    expect(FRAGILE_PATH.test("/Users/x/.nvm/versions/node/v20.11.0/bin/node")).toBe(true);
+    expect(FRAGILE_PATH.test("/opt/homebrew/Cellar/node/24.2.0/bin/node")).toBe(true);
+    expect(
+      FRAGILE_PATH.test("/Users/x/.local/share/fnm/node-versions/v20/installation/bin/node"),
+    ).toBe(true);
+    expect(FRAGILE_PATH.test("/Users/x/.local/share/mise/shims/node")).toBe(false);
+    expect(FRAGILE_PATH.test("/Users/x/.asdf/shims/node")).toBe(false);
+    expect(FRAGILE_PATH.test("/usr/local/bin/node")).toBe(false);
   });
 
   test("remove strips only our entry and cleans empty containers", () => {
