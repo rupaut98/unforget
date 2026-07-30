@@ -52,14 +52,16 @@ unforget doctor    # hook installed? paths on disk? last injection fresh?
 ## Does it work?
 
 The built-in summary already covers most mechanical rediscovery; unforget catches what it drops.
-In the author's own dogfooding — 28 post-install compactions, self-measured:
+In the author's own dogfooding — 135 compaction boundaries, 62 of them post-install, self-measured:
 
-- **1.0 vs 3.06** median rediscoveries per compaction (files re-read / commands re-run that were
-  already known). The mean is noisier (2.21 — a few image-heavy UI sessions rediscover a lot).
-- **97%** of the working state the summary dropped was carried by the digest.
-- **~1,100 tokens** of that state re-injected per compaction that needed it.
+- **98%** of the working state the summary dropped was carried by the digest (22.7% of all
+  rediscovery events, most of which the summary already covered).
+- **3.15 → 1.97** average rediscoveries per compaction, pre- vs post-install (files re-read /
+  commands re-run that were already known). The pre-install half is *correlational* — different
+  sessions, not a controlled A/B.
+- **~854 tokens** of that state re-injected per compaction that needed it.
 
-Small single-machine sample — directional, not a guarantee. Run `bun bench/retro.ts` against your
+Single-machine sample — directional, not a guarantee. Run `bun bench/retro.ts` against your
 own `~/.claude` to measure it yourself.
 
 ## How it works
