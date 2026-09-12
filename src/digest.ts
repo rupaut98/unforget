@@ -12,7 +12,12 @@ const CHAR_CAP = 9_500;
 // Require an actual test runner: bare "test"/"spec" also match paths like `src/test/x`.
 const TEST_RE =
   /\b(pytest|jest|vitest|mocha|rspec|phpunit|ctest|(bun|go|cargo|npm|pnpm|yarn|deno)\s+(run\s+)?test|npm\s+t\b|make\s+test|(python3?|node)(\s+\S+)?\s+\S*\btests?\b)/i;
-const CONSTRAINT_RE = /(don'?t|do not|never|must not|avoid|only use|always)\b/i;
+const CONSTRAINT_RE =
+  /^(?:(?:please|just|also|i|we|you|u)\s+)*(?:don'?t|do not|never|must not|avoid|only use|always)\b/i;
+const CLAUSE_SPLIT_RE = /[,;:]\s+|\s+(?:but|and|so|then)\s+|\s[—-]\s/;
+function isConstraint(sentence: string): boolean {
+  return sentence.split(CLAUSE_SPLIT_RE).some((c) => CONSTRAINT_RE.test(c.trim()));
+}
 // Low-signal "keep going" nudges — a poor active task if a real ask exists.
 const CONTINUATION_RE =
   /^(continue|go on|go ahead|proceed|keep going|yes|yep|ok(ay)?|sure|next|do it|please continue)\b/i;
@@ -197,7 +202,7 @@ export function extract(dropped: Rec[]): Digest {
         asks.push(text);
         // constraints only from real asks: pasted policy/teammate text is full of stray "never/don't".
         for (const s of sentences(text)) {
-          if (!CONSTRAINT_RE.test(s)) continue;
+          if (!isConstraint(s)) continue;
           const c = trunc(s, 120);
           if (seenConstraint.has(c.toLowerCase())) continue;
           seenConstraint.add(c.toLowerCase());

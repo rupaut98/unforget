@@ -23,6 +23,7 @@ unless noted.
 | footer-count freshness (`injectionStatus`) | crediting stale injections as interventional data | same finding; shared by `bench/retro.ts` and `doctor` |
 | `IMAGE_PLACEHOLDER_RE` strip | `[Image #N]` placeholders polluting task/constraint lines | 2026-07-21 corpus replay: 4 of 10 flagged active-tasks were fine asks wearing image placeholders |
 | `looksLikePaste` (prose-line majority) | pasted output of ANY tool (psql tables, shell sessions, stack traces) winning active-task | 2026-07-21: a psql fragment and a React trace each won the slot; per-format regexes rejected as a treadmill (a psql-only fix needed 3 prompt variants in one sitting) |
+| `isConstraint` clause-leading keyword | narrative "never"/"don't" inside an ask ("the vendor never called back", "step 4 sometimes never happens") listed as constraints | 2026-09-11 corpus replay over 399 boundaries: 132 constraint lines, 104 with the keyword mid-sentence; a 40-line sample of those was ~90% explanation or pasted output. Requiring the keyword to open a clause keeps 69 |
 
 Validation: `bench/retro.ts` replays every real compact boundary on this machine and gates
 NET AVOIDED% at a floor, median precision at a floor (verbosity guard: dumping everything keeps
