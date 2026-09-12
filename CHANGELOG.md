@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/rupaut98/unforget/compare/v0.2.1...v0.2.2) (2026-09-12)
+
+
+### Bug Fixes
+
+* **digest:** require a clause-leading keyword for constraints ([c69524d](https://github.com/rupaut98/unforget/commit/c69524d8f2f6eaf9f4ef13ffe4b29ace7b0f2c79))
+* **doctor:** expand $HOME and skip shell variables when checking hook paths ([5cd2e02](https://github.com/rupaut98/unforget/commit/5cd2e026590b650caf5b9dbf243fac61d30bac54))
+
 ## [0.2.1](https://github.com/rupaut98/unforget/compare/v0.2.0...v0.2.1) (2026-07-28)
 
 
