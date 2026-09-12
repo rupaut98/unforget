@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, readSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import { digestInject, digestPath, injectionStatus, isEmpty, render, TOOL } from "./digest.js";
 import { applyInit, hookEntry, installedCommand, settingsPath } from "./init.js";
@@ -123,10 +124,10 @@ function main(): void {
     } else {
       console.log(`hook installed: ${hookCmd}`);
       // quoted paths in the hook command (runtime + script) must exist, or the hook is silently dead.
-      for (const [, p] of hookCmd.matchAll(/"([^"]+)"/g)) {
-        if (p && !existsSync(p)) {
-          console.log(`MISSING path ${p} — hook is silently dead; re-run \`${TOOL} init\``);
-        }
+      for (const [, quoted] of hookCmd.matchAll(/"([^"]+)"/g)) {
+        const p = (quoted ?? "").replace(/^(?:\$HOME|~)(?=\/)/, homedir());
+        if (p.includes("$") || existsSync(p)) continue;
+        console.log(`MISSING path ${p} — hook is silently dead; re-run \`${TOOL} init\``);
       }
     }
     if (!path) {
