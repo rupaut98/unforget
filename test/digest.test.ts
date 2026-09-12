@@ -303,6 +303,15 @@ describe("noise filters", () => {
     expect(d.constraints).toHaveLength(1);
     expect(d.constraints[0]).toContain("don't add any new dependencies");
   });
+
+  test("constraints require the keyword to open a clause; narrative never/don't is skipped", () => {
+    const d = extract([
+      user(
+        "Fix the webhook path please. The vendor took the job, then it never called back. Step 4 sometimes never happens. Don't touch the retry loop.",
+      ),
+    ]);
+    expect(d.constraints).toEqual(["Don't touch the retry loop."]);
+  });
 });
 
 describe("excludeCovered (summary dedupe)", () => {
