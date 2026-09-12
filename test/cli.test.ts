@@ -76,4 +76,24 @@ describe("doctor", () => {
     expect(r.stdout).toContain("hook NOT installed");
     expect(r.stdout).toContain("no transcript found");
   });
+
+  test("hand-edited hook with $HOME and shell variables is not reported as MISSING", () => {
+    const dir = mkdtempSync(join(tmpdir(), "unforget-doctor-"));
+    const script = join(dir, "unforget.mjs");
+    writeFileSync(script, "");
+    const command = `f="${script}"; cd "$HOME/" && node "$f" inject || true`;
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({
+        hooks: { SessionStart: [{ matcher: "compact", hooks: [{ type: "command", command }] }] },
+      }),
+    );
+    const r = spawnSync("bun", [CLI, "doctor"], {
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE_CONFIG_DIR: dir },
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("hook installed");
+    expect(r.stdout).not.toContain("MISSING");
+  });
 });
